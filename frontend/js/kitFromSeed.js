@@ -2,7 +2,7 @@
  * Client-side light kit: same indices as ``backend/kit_rng.pick_index`` + manifest paths.
  */
 
-const MANIFEST_STORAGE_KEY = "bb_kit_manifest_v1";
+const MANIFEST_STORAGE_KEY = "bb_kit_manifest_v2";
 const TARGET_RATE = 44100;
 
 export const KIT_SOUND_KEYS = [
@@ -17,6 +17,7 @@ export const KIT_SOUND_KEYS = [
   "synth1",
   "synth2",
   "synth3",
+  "kick",
 ];
 
 export const SYNTH_KEYS = ["synth1", "synth2", "synth3"];

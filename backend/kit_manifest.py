@@ -52,4 +52,4 @@ def build_kit_manifest() -> dict[str, Any]:
     for stem in ("synth1", "synth2", "synth3"):
         out[stem] = list(synth_rel)
 
-    return {"version": 1, "sampleRate": 44100, "keys": out}
+    return {"version": 2, "sampleRate": 44100, "keys": out}

@@ -26,6 +26,7 @@ API_SOUND_KEYS: tuple[str, ...] = (
     "synth1",
     "synth2",
     "synth3",
+    "kick",
 )
 
 

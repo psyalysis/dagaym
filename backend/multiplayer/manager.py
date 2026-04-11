@@ -88,6 +88,12 @@ def _normalize_player_spices(data: dict[str, Any]) -> list[float] | None:
     return sorted(set(out))
 
 
+# Pre-game lobby emoji keys (client maps to Unicode).
+LOBBY_EMOJI_KEYS: frozenset[str] = frozenset({"wave", "thumbs_up", "fire", "clap", "heart"})
+# Reactions while listening to beats in the voting slideshow.
+BEAT_REACTION_KEYS: frozenset[str] = frozenset({"fire", "thumbs_up", "thumbs_down", "hundred"})
+
+
 class LobbyManager:
     def __init__(self, uploads_root: Path) -> None:
         self.uploads_root = uploads_root
@@ -543,16 +549,25 @@ class LobbyManager:
                 return
             lobby.state = LobbyState.UPLOAD
 
-        await self.broadcast(lobby_id, {"type": "upload_phase_start", "lobby_id": lobby_id})
+        upload_deadline_ts = time.time() + UPLOAD_PHASE_S
+        await self.broadcast(
+            lobby_id,
+            {
+                "type": "upload_phase_start",
+                "lobby_id": lobby_id,
+                "upload_deadline_ts": upload_deadline_ts,
+            },
+        )
 
         if lobby_id in self._upload_tasks:
             self._upload_tasks[lobby_id].cancel()
-        self._upload_tasks[lobby_id] = asyncio.create_task(self._upload_phase(lobby_id))
+        self._upload_tasks[lobby_id] = asyncio.create_task(
+            self._upload_phase(lobby_id, upload_deadline_ts)
+        )
 
-    async def _upload_phase(self, lobby_id: str) -> None:
+    async def _upload_phase(self, lobby_id: str, deadline_ts: float) -> None:
         try:
-            deadline = time.time() + UPLOAD_PHASE_S
-            while time.time() < deadline:
+            while time.time() < deadline_ts:
                 async with self._lock:
                     lobby = self.lobbies.get(lobby_id)
                     if not lobby or lobby.state != LobbyState.UPLOAD:
@@ -731,6 +746,74 @@ class LobbyManager:
             if player_id not in lobby.players:
                 return
             lobby.slideshow_completed.add(player_id)
+
+    async def lobby_emoji(self, player_id: str, emoji_key: str) -> None:
+        key = str(emoji_key).strip()
+        if key not in LOBBY_EMOJI_KEYS:
+            await self.send_to(player_id, {"type": "error", "message": "Invalid emoji."})
+            return
+        async with self._lock:
+            lobby_id = self.player_lobby.get(player_id)
+            if not lobby_id:
+                return
+            lobby = self.lobbies.get(lobby_id)
+            if not lobby or lobby.state != LobbyState.LOBBY:
+                await self.send_to(
+                    player_id,
+                    {"type": "error", "message": "Emoji chat is only available before the match starts."},
+                )
+                return
+            pl = lobby.players.get(player_id)
+            if not pl:
+                return
+            name = pl.name
+        await self.broadcast(
+            lobby_id,
+            {
+                "type": "lobby_emoji",
+                "player_id": player_id,
+                "name": name,
+                "emoji": key,
+            },
+        )
+
+    async def beat_reaction(self, player_id: str, target_player_id: str, reaction: str) -> None:
+        r = str(reaction).strip()
+        if r not in BEAT_REACTION_KEYS:
+            await self.send_to(player_id, {"type": "error", "message": "Invalid reaction."})
+            return
+        tid = str(target_player_id).strip()
+        if not tid:
+            await self.send_to(player_id, {"type": "error", "message": "Missing beat target."})
+            return
+        async with self._lock:
+            lobby_id = self.player_lobby.get(player_id)
+            if not lobby_id:
+                return
+            lobby = self.lobbies.get(lobby_id)
+            if not lobby or lobby.state != LobbyState.VOTING:
+                await self.send_to(
+                    player_id,
+                    {"type": "error", "message": "Reactions are only available during the listening phase."},
+                )
+                return
+            if player_id not in lobby.players or tid not in lobby.uploaded:
+                await self.send_to(player_id, {"type": "error", "message": "Invalid reaction target."})
+                return
+            if tid == player_id:
+                return
+            pl = lobby.players.get(player_id)
+            from_name = pl.name if pl else player_id
+        await self.broadcast(
+            lobby_id,
+            {
+                "type": "beat_reaction",
+                "from_player_id": player_id,
+                "from_name": from_name,
+                "target_player_id": tid,
+                "reaction": r,
+            },
+        )
 
     async def cast_vote(self, player_id: str, target_player_id: str) -> None:
         async with self._lock:
@@ -946,5 +1029,13 @@ class LobbyManager:
             await self.cast_vote(player_id, str(data.get("target_player_id", "")))
         elif t == "slideshow_complete":
             await self.slideshow_complete(player_id)
+        elif t == "lobby_emoji":
+            await self.lobby_emoji(player_id, str(data.get("emoji", "")))
+        elif t == "beat_reaction":
+            await self.beat_reaction(
+                player_id,
+                str(data.get("target_player_id", "")),
+                str(data.get("reaction", "")),
+            )
         else:
             await self.send_to(player_id, {"type": "error", "message": f"Unknown message: {t}"})

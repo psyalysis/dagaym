@@ -25,6 +25,7 @@ const SOUND_KEYS = [
   "synth1",
   "synth2",
   "synth3",
+  "kick",
 ];
 
 function base64ToAudioSrc(base64) {

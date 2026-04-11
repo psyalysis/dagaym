@@ -56,6 +56,7 @@ CATEGORY_FOLDERS: dict[str, str] = {
     "perc": "percs",
     "fx": "fx",
     "vox": "Vox",
+    "kick": "kicks",
 }
 
 
@@ -82,6 +83,7 @@ EXPECTED_KIT_WAVS = frozenset(
         "synth1.wav",
         "synth2.wav",
         "synth3.wav",
+        "kick.wav",
     }
 )
 
@@ -226,6 +228,7 @@ def generate_slot(
 
     Chains (after load + optional layer):
     - **808**: optional pitch (less likely at low spice) → lowpass → tanh → mono.
+    - **Kick** (``dataset/kicks/``): optional pitch like 808 → band EQ → attack boost → tanh → mono.
     - **Snare**: optional snare+clap layer → pitch → bandpass → attack boost → tanh → optional tail.
     - **Clap**: optional snare/perc layer → pitch → bandpass → tanh → optional tail + stereo.
     - **Hihat**: optional double-hat layer → pitch → bright HP/LP → tanh → optional stereo.
@@ -281,8 +284,8 @@ def generate_slot(
     if logical in ("fx", "vox"):
         y = apply_time_stretch_optional(y, s, rng)
 
-    # --- Step 3: pitch (808 often cleaner with no shift—probability scales with spice) ---
-    if logical == "808":
+    # --- Step 3: pitch (808 / kick often cleaner with no shift—probability scales with spice) ---
+    if logical in ("808", "kick"):
         y = apply_pitch_shift(y, s, sr, rng, always=False)
     else:
         y = apply_pitch_shift(y, s, sr, rng, always=True)
@@ -290,8 +293,8 @@ def generate_slot(
     # --- Step 4: category filter ---
     y = apply_filter(y, logical, s, sr, rng)
 
-    # Snare: transient emphasis after EQ so filters don't dull the click
-    if logical == "snare":
+    # Snare / kick: transient emphasis after EQ so filters don't dull the click
+    if logical in ("snare", "kick"):
         y = transient_boost(y, s, rng)
 
     # --- Step 5: saturation (soft clip) ---
@@ -333,7 +336,7 @@ def generate_slot(
             y = stereo_widen(y, s, rng)
         else:
             y = y.astype(np.float64, copy=False)
-    elif logical == "808":
+    elif logical in ("808", "kick"):
         y = y.astype(np.float64, copy=False)
     elif logical == "synth":
         y = y.astype(np.float64, copy=False)
@@ -421,7 +424,7 @@ def generate_kit(
     out: dict[str, Path] = {}
     offset = 0
 
-    static_order = ["snare", "clap", "hihat", "open_hat", "808", "perc", "fx", "vox"]
+    static_order = ["snare", "clap", "hihat", "open_hat", "808", "perc", "fx", "vox", "kick"]
     for logical in static_order:
         p = resolve_sound(logical, cfg)
         y = _generate_with_retries(
@@ -512,6 +515,7 @@ _LIGHT_KIT_KEYS: tuple[str, ...] = (
     "synth1",
     "synth2",
     "synth3",
+    "kick",
 )
 
 

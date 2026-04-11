@@ -2,7 +2,7 @@
 Audio helpers for the trap-oriented drum kit generator.
 
 Dataset folders (under ``dataset/``) include ``snares``, ``claps``, ``hihats``, ``openhats``,
-``808s``, ``percs``, ``fx``, ``Vox``, ``synths``.
+``808s``, ``kicks``, ``percs``, ``fx``, ``Vox``, ``synths``.
 
 Spice scales mutation *ranges* (not a single on/off): at 0.0, shifts and saturation stay
 subtle so one-shots stay mix-ready; at 1.0, the same parameters allow wider pitch moves,
@@ -232,6 +232,13 @@ def apply_filter(
         # Keep sub weight; roll off highs more when spice is low (tighter 808).
         cutoff = 3200.0 + s * 2200.0 + float(rng.uniform(-200.0, 200.0))
         x = _butter_filter(x, sr, "lowpass", cutoff)
+
+    elif cat == "kick":
+        # Sub + beater; keep lows, tame extreme subs and harsh top.
+        hp = 35.0 + s * 90.0 + float(rng.uniform(-15.0, 15.0))
+        lp = 12000.0 + s * 2500.0 + float(rng.uniform(-400.0, 400.0))
+        x = _butter_filter(x, sr, "highpass", hp)
+        x = _butter_filter(x, sr, "lowpass", lp)
 
     elif cat == "hihat":
         hp = 5500.0 + s * 1500.0 + float(rng.uniform(-400.0, 400.0))
@@ -580,7 +587,7 @@ def _category_flatness_threshold(category: str) -> float:
         return 0.82
     if c == "fx":
         return 0.75
-    if c in ("snare", "clap", "perc", "vox", "synth", "synth1", "synth2", "synth3"):
+    if c in ("snare", "clap", "perc", "vox", "kick", "synth", "synth1", "synth2", "synth3"):
         return 0.55
     if c == "808":
         return 0.35

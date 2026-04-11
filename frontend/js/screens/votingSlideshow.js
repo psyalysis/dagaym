@@ -1,11 +1,31 @@
 /**
- * VotingSlideshowScreen — play up to 30s of each beat; waveform matches audible clip.
+ * VotingSlideshowScreen — play up to 45s of each beat; waveform matches audible clip.
  */
 import { authHeadersMultipart } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { escapeHtml } from "../rankUi.js";
+import { playSfxMinor } from "../sfx.js";
 import { mountVoteSelectionScreen } from "./voteSelection.js";
 
-const CLIP_MAX_SEC = 30;
+/** @type {Record<string, string>} */
+const BEAT_REACTION_EMOJI = {
+  fire: "🔥",
+  thumbs_up: "👍",
+  thumbs_down: "👎",
+  hundred: "💯",
+};
+
+const BEAT_REACTION_KEYS = Object.keys(BEAT_REACTION_EMOJI);
+
+/** @type {Record<string, string>} */
+const BEAT_REACTION_ARIA = {
+  fire: "Fire",
+  thumbs_up: "Thumbs up",
+  thumbs_down: "Thumbs down",
+  hundred: "One hundred",
+};
+
+const CLIP_MAX_SEC = 45;
 
 function getWaveSurfer() {
   const g = globalThis;
@@ -95,12 +115,24 @@ export function mountVotingSlideshowScreen(root, ctx) {
   let idx = 0;
   /** @type {string | null} */
   let slideObjectUrl = null;
+  /** @type {string | null} */
+  let currentBeatOwnerId = null;
 
   root.innerHTML = `
     <div class="screen slideshow arcade-panel">
       <h2 class="arcade-heading" id="slide-title">VOTING</h2>
       <p class="slide-player" id="slide-player"></p>
       <div id="slide-wave" class="slideshow-wave"></div>
+      <div class="slideshow-reactions" id="slideshow-reactions" hidden>
+        <p class="arcade-label slideshow-reactions-label">React</p>
+        <div class="slideshow-reaction-btns" role="group" aria-label="Beat reactions">
+          ${BEAT_REACTION_KEYS.map(
+            (k) =>
+              `<button type="button" class="slideshow-reaction-btn" data-beat-reaction="${k}" aria-label="${BEAT_REACTION_ARIA[k] || k}">${BEAT_REACTION_EMOJI[k]}</button>`,
+          ).join("")}
+        </div>
+      </div>
+      <div class="slideshow-reaction-feed" id="slideshow-reaction-feed" aria-live="polite"></div>
       <p class="arcade-hint" id="slide-progress"></p>
     </div>
   `;
@@ -109,6 +141,8 @@ export function mountVotingSlideshowScreen(root, ctx) {
   const nameEl = root.querySelector("#slide-player");
   const waveEl = root.querySelector("#slide-wave");
   const progEl = root.querySelector("#slide-progress");
+  const reactionsEl = root.querySelector("#slideshow-reactions");
+  const reactionFeedEl = root.querySelector("#slideshow-reaction-feed");
 
   const goVote = () => {
     preserveWs = true;
@@ -141,7 +175,13 @@ export function mountVotingSlideshowScreen(root, ctx) {
       return;
     }
     const b = beats[idx];
-    if (nameEl) nameEl.textContent = `${b.name} — Beat`;
+    currentBeatOwnerId = b.player_id || null;
+    if (reactionFeedEl) reactionFeedEl.innerHTML = "";
+    const listeningOthers = b.player_id && b.player_id !== playerId;
+    if (reactionsEl) {
+      reactionsEl.hidden = !listeningOthers;
+    }
+    if (nameEl) nameEl.textContent = String(b.name ?? "");
     if (titleEl) titleEl.textContent = "NOW PLAYING";
     if (progEl) progEl.textContent = `${idx + 1} / ${beats.length}`;
     if (waveEl) waveEl.innerHTML = "";
@@ -257,12 +297,51 @@ export function mountVotingSlideshowScreen(root, ctx) {
     }
   };
 
+  const appendReactionLine = (fromName, reactionKey) => {
+    if (!reactionFeedEl || !currentBeatOwnerId) return;
+    const ch = BEAT_REACTION_EMOJI[reactionKey] || "·";
+    const line = document.createElement("p");
+    line.className = "slideshow-reaction-line";
+    line.innerHTML = `<em class="slideshow-reaction-name">${escapeHtml(fromName)}</em> <span class="slideshow-reaction-emoji" aria-hidden="true">${ch}</span>`;
+    reactionFeedEl.appendChild(line);
+    while (reactionFeedEl.children.length > 6) {
+      reactionFeedEl.removeChild(reactionFeedEl.firstChild);
+    }
+  };
+
+  const reactionClick = (e) => {
+    const origin = e.target instanceof Element ? e.target : null;
+    const btn = origin?.closest?.("[data-beat-reaction]");
+    if (!(btn instanceof HTMLButtonElement) || !reactionsEl || reactionsEl.hidden) return;
+    const target = currentBeatOwnerId;
+    const reaction = btn.dataset.beatReaction;
+    if (!target || !reaction) return;
+    playSfxMinor();
+    try {
+      wsSock.send(
+        JSON.stringify({
+          type: "beat_reaction",
+          target_player_id: target,
+          reaction,
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+  reactionsEl?.addEventListener("click", reactionClick);
+
   const onSocket = (ev) => {
     let m;
     try {
       m = JSON.parse(ev.data);
     } catch {
       return;
+    }
+    if (m.type === "beat_reaction" && m.from_name && m.reaction && m.target_player_id) {
+      if (m.target_player_id === currentBeatOwnerId) {
+        appendReactionLine(String(m.from_name), String(m.reaction));
+      }
     }
     if (m.type === "results") {
       preserveWs = true;
@@ -283,6 +362,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
   }
 
   return () => {
+    reactionsEl?.removeEventListener("click", reactionClick);
     if (slideObjectUrl) {
       URL.revokeObjectURL(slideObjectUrl);
       slideObjectUrl = null;

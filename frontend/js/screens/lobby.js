@@ -6,7 +6,43 @@ import { escapeHtml, rankBadgeHtml } from "../rankUi.js";
 import { playSfxBeatBattle, playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountCookScreen } from "./cook.js";
 
-function renderLobby(root, lobby, selfId, kitProgress) {
+/** @type {Record<string, string>} */
+const LOBBY_EMOJI_CHARS = {
+  wave: "👋",
+  thumbs_up: "👍",
+  fire: "🔥",
+  clap: "👏",
+  heart: "❤️",
+};
+
+const LOBBY_EMOJI_KEYS = Object.keys(LOBBY_EMOJI_CHARS);
+
+/** @type {Record<string, string>} */
+const LOBBY_EMOJI_ARIA = {
+  wave: "Wave hello",
+  thumbs_up: "Thumbs up",
+  fire: "Fire",
+  clap: "Clap",
+  heart: "Heart",
+};
+
+/**
+ * @param {string} name
+ * @param {string} emojiKey
+ */
+function lobbyEmojiLineHtml(name, emojiKey) {
+  const esc = escapeHtml(name);
+  if (emojiKey === "wave") {
+    return `<p class="lobby-chat-line"><em class="lobby-chat-name">${esc}</em> waved! <span class="lobby-chat-emoji" aria-hidden="true">${LOBBY_EMOJI_CHARS.wave}</span></p>`;
+  }
+  const ch = LOBBY_EMOJI_CHARS[emojiKey] || "·";
+  return `<p class="lobby-chat-line"><em class="lobby-chat-name">${esc}</em> <span class="lobby-chat-emoji" aria-hidden="true">${ch}</span></p>`;
+}
+
+/**
+ * @param {string[]} linesHtml
+ */
+function renderLobby(root, lobby, selfId, kitProgress, linesHtml) {
   const players = lobby.players || [];
   const hostId = lobby.host_id || "";
   const isHost = Boolean(selfId && hostId && selfId === hostId);
@@ -52,6 +88,21 @@ function renderLobby(root, lobby, selfId, kitProgress) {
       <p class="arcade-hint">Spice ${lobby.spice} · ${lobby.is_public ? "Public" : "Code only"} · min 2 players · all ready · cook ${cookMin} min</p>
       ${hostDuration}
       <div class="lobby-list">${rows}</div>
+      ${
+        generating
+          ? ""
+          : `
+      <div class="lobby-chat-wrap">
+        <p class="arcade-label lobby-chat-label">Quick chat</p>
+        <div class="lobby-chat-feed" id="lobby-chat-feed" aria-live="polite">${linesHtml.join("")}</div>
+        <div class="lobby-emoji-bar" role="group" aria-label="Send an emoji">
+          ${LOBBY_EMOJI_KEYS.map(
+            (k) =>
+              `<button type="button" class="lobby-emoji-btn" data-lobby-emoji="${k}" aria-label="${LOBBY_EMOJI_ARIA[k] || "Send emoji"}">${LOBBY_EMOJI_CHARS[k]}</button>`,
+          ).join("")}
+        </div>
+      </div>`
+      }
       <p class="arcade-error" id="lobby-err"></p>
       <div class="arcade-actions"${generating ? ' hidden' : ""}>
         <button type="button" class="arcade-btn arcade-btn-primary" id="btn-ready">READY</button>
@@ -83,10 +134,13 @@ export function mountLobbyScreen(root, ctx) {
   let lobby = ctx.lobby;
   /** @type {null | { step?: number; total?: number; message?: string; percent?: number }} */
   let kitProgress = null;
+  /** @type {string[]} */
+  let chatLinesHtml = [];
+  const MAX_LOBBY_CHAT = 10;
   let preserveWs = false;
   let intentionalLeave = false;
 
-  const paint = () => renderLobby(root, lobby, playerId, kitProgress);
+  const paint = () => renderLobby(root, lobby, playerId, kitProgress, chatLinesHtml);
 
   const errEl = () => root.querySelector("#lobby-err");
 
@@ -115,6 +169,12 @@ export function mountLobbyScreen(root, ctx) {
     }
     if (m.type === "player_ready") {
       /* lobby_update follows */
+    }
+    if (m.type === "lobby_emoji" && m.emoji && m.name) {
+      chatLinesHtml = [...chatLinesHtml, lobbyEmojiLineHtml(String(m.name), String(m.emoji))].slice(
+        -MAX_LOBBY_CHAT,
+      );
+      paint();
     }
     if (m.type === "error") {
       const e = errEl();
@@ -176,6 +236,26 @@ export function mountLobbyScreen(root, ctx) {
   const clickHandler = (e) => {
     const t = e.target;
     const origin = t instanceof Element ? t : t && "parentElement" in t ? t.parentElement : null;
+    const emojiBtn = origin?.closest?.("[data-lobby-emoji]");
+    if (emojiBtn instanceof HTMLButtonElement && emojiBtn.dataset.lobbyEmoji) {
+      playSfxMinor();
+      if (ws.readyState !== WebSocket.OPEN) {
+        const err = errEl();
+        if (err) err.textContent = "Not connected.";
+        return;
+      }
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "lobby_emoji",
+            emoji: emojiBtn.dataset.lobbyEmoji,
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     const btn = origin?.closest?.("#btn-ready, #btn-leave");
     if (!btn) return;
 

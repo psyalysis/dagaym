@@ -30,10 +30,10 @@ COOK_DURATION_S = 600
 # Host-selectable cook length (minutes); UI/backend clamp to these values.
 COOK_DURATION_MIN_OPTIONS: tuple[int, ...] = (5, 10, 15, 20)
 DEFAULT_COOK_DURATION_MIN = 10
-# Upload window after cook ends so matches do not stall if someone drops.
-UPLOAD_PHASE_S = 600
-# Seconds per beat in slideshow (1–30s playback) plus small pad before votes unlock.
-SLIDESHOW_SEGMENT_S = 31
+# Upload window after cook ends (1 minute).
+UPLOAD_PHASE_S = 60
+# Seconds per beat in slideshow (1–45s playback) plus small pad before votes unlock.
+SLIDESHOW_SEGMENT_S = 46
 # Max time to collect votes after unlock.
 VOTING_COLLECT_S = 300
 # Lobbies in results older than this are purged (uploads deleted).

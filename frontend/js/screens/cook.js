@@ -28,6 +28,7 @@ const SOUND_KEYS = [
   "synth1",
   "synth2",
   "synth3",
+  "kick",
 ];
 
 function base64ToAudioSrc(b64) {
@@ -385,6 +386,7 @@ function setupCookUI(root, ctx, sounds) {
         mpWs: ws,
         playerId,
         lobbyId,
+        uploadDeadlineTs: m.upload_deadline_ts,
       });
     }
   };
