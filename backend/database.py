@@ -1,10 +1,10 @@
 """
-SQLite engine and session factory for CookUp accounts.
+SQLAlchemy engine and session factory for CookUp accounts.
 
-Production (e.g. Render): set ``DATABASE_URL`` to a file on a persistent disk, e.g.
-``sqlite:////var/data/cookup.db`` (four slashes: absolute path on Unix).
-
-Local dev: unset ``DATABASE_URL`` to use ``<project_root>/cookup.db``.
+- **Local dev:** leave ``DATABASE_URL`` unset to use SQLite at ``<project_root>/cookup.db``.
+- **Production (Render Postgres):** set ``DATABASE_URL`` to the **Internal Database URL**
+  from your Render Postgres dashboard (or link the DB so Render injects it). Never commit
+  credentials; set them only in the Render dashboard or a local ``.env`` (gitignored).
 """
 
 from __future__ import annotations
@@ -53,22 +53,35 @@ def _ensure_sqlite_parent_dir(database_url: str) -> None:
 DATABASE_URL = resolve_database_url()
 _ensure_sqlite_parent_dir(DATABASE_URL)
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    pool_pre_ping=True,
-)
+
+def _create_engine():
+    url = DATABASE_URL
+    kwargs: dict = {"pool_pre_ping": True}
+    try:
+        backend = make_url(url).get_backend_name()
+    except Exception:
+        backend = "sqlite"
+    if backend == "sqlite":
+        kwargs["connect_args"] = {"check_same_thread": False}
+    return create_engine(url, **kwargs)
+
+
+engine = _create_engine()
 
 
 @event.listens_for(engine, "connect")
-def _sqlite_pragmas(dbapi_conn, _connection_record) -> None:
-    """Better concurrency and fewer lock errors under load (WAL + busy timeout)."""
+def _sqlite_pragmas(dbapi_conn, connection_record) -> None:
+    """SQLite only: WAL and busy timeout. Postgres connections skip this."""
+    if connection_record.dialect.name != "sqlite":
+        return
     cur = dbapi_conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
     cur.execute("PRAGMA synchronous=NORMAL")
     cur.execute("PRAGMA foreign_keys=ON")
     cur.execute("PRAGMA busy_timeout=5000")
     cur.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

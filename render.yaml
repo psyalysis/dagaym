@@ -1,19 +1,14 @@
 # https://render.com/docs/blueprint-spec
 #
-# Persistent SQLite: DATABASE_URL points at a file on the mounted disk so data survives redeploys.
-# (Services with a disk cannot be horizontally scaled — fine for in-memory multiplayer.)
+# Set DATABASE_URL on the Web Service to your Render Postgres *Internal Database URL*
+# (Environment tab, or link the Postgres database to inject it). Do not commit credentials.
+# Free web services cannot use persistent disks; use managed Postgres for durable data.
 services:
   - type: web
     name: beat-battle
     runtime: python
     buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-    disk:
-      name: cookup-db
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: COOKUP_JWT_SECRET
         generateValue: true
-      - key: DATABASE_URL
-        value: sqlite:////var/data/cookup.db
