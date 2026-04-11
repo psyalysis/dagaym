@@ -905,6 +905,42 @@ audio {
   color: var(--text-heading);
 }
 
+/* Discord — bottom-left, matches auth-corner chrome */
+.discord-corner {
+  position: fixed;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 6, 6, 0.94);
+  backdrop-filter: blur(8px);
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.discord-corner:hover {
+  border-color: var(--red);
+  color: var(--red-bright);
+  background: rgba(20, 8, 8, 0.96);
+}
+
+.discord-corner:focus-visible {
+  outline: 1px solid var(--red-bright);
+  outline-offset: 2px;
+}
+
+.discord-corner-icon {
+  width: 1.05rem;
+  height: auto;
+  display: block;
+}
+
 /* Fixed account — top-right, card above actions */
 .auth-corner {
   position: fixed;
