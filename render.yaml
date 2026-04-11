@@ -1,11 +1,4 @@
 # https://render.com/docs/blueprint-spec
-#
-# Python: ``PYTHON_VERSION`` below + repo ``runtime.txt`` + ``backend/runtime.txt`` (if Root Dir is ``backend``).
-# If deploy still shows 3.14, set Python 3.12 in the Web Service Settings UI.
-#
-# Database: set ``DATABASE_URL`` to your Neon connection string (Dashboard → Connect).
-# Optional: ``COOKUP_DB_*`` split vars + ``COOKUP_DB_USE_SPLIT=1`` — see ``backend/database.py``.
-# Free web services cannot use persistent disks; Neon (or similar) holds durable data.
 services:
   - type: web
     name: beat-battle
@@ -13,7 +6,5 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.8
       - key: COOKUP_JWT_SECRET
         generateValue: true
