@@ -3,7 +3,7 @@
  */
 import { playBufferOnce, SYNTH_KEYS } from "./kitFromSeed.js";
 
-const REVEAL_STAGGER_MS = 820;
+const REVEAL_STAGGER_MS = 2000;
 
 /**
  * Replaces ``container`` inner HTML with the reveal UI; resolves when done (and drums ready).
@@ -19,13 +19,13 @@ export function runSynthReveal(container, audioContext, synthBuffers, drumsStill
     <div class="synth-reveal synth-reveal--embed arcade-panel">
       <h2 class="arcade-heading synth-reveal-heading">Here are your synths!</h2>
       <div class="synth-reveal-stack" aria-live="polite">
-        <div class="synth-card synth-card--z3" data-synth-i="0">
+        <div class="synth-card" data-synth-i="0">
           <span class="synth-card-label">Synth 1</span>
         </div>
-        <div class="synth-card synth-card--z2" data-synth-i="1">
+        <div class="synth-card" data-synth-i="1">
           <span class="synth-card-label">Synth 2</span>
         </div>
-        <div class="synth-card synth-card--z1" data-synth-i="2">
+        <div class="synth-card" data-synth-i="2">
           <span class="synth-card-label">Synth 3</span>
         </div>
       </div>
@@ -70,6 +70,8 @@ export function runSynthReveal(container, audioContext, synthBuffers, drumsStill
       const key = keys[step];
       if (card) {
         requestAnimationFrame(() => {
+          /* Newest reveal on top of the pile (higher step → higher z-index). */
+          card.style.zIndex = String(10 + step);
           card.classList.add("synth-card--in");
           void card.offsetWidth;
           card.classList.add("synth-card--placed");

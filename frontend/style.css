@@ -1074,7 +1074,7 @@ audio {
   opacity: 0.75;
 }
 
-/* Synth reveal (client-built kit) */
+/* Synth reveal (client-built kit) — playing-card ratio 2.5×3.5 (5:7), vertical shuffle only */
 .synth-reveal {
   text-align: center;
   padding: 2rem 1rem 3rem;
@@ -1086,75 +1086,75 @@ audio {
 }
 
 .synth-reveal-heading {
-  margin: 0 0 0.25rem;
-  max-width: 22rem;
+  margin: 0 0 1rem;
+  max-width: min(36rem, 94vw);
+  font-size: clamp(1.45rem, 5.5vw, 2.35rem);
+  line-height: 1.12;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-heading);
 }
 
 .synth-reveal-sub {
   margin-top: 2rem;
   min-height: 1.4em;
-  max-width: 20rem;
+  max-width: 22rem;
 }
 
 .synth-reveal-stack {
   position: relative;
-  width: min(280px, 86vw);
-  height: 200px;
-  margin: 2rem 0 0;
-  perspective: 900px;
-  transform-style: preserve-3d;
+  width: min(300px, 82vw);
+  min-height: clamp(360px, 58vw, 440px);
+  margin: 1.75rem 0 0;
 }
 
 .synth-card {
   position: absolute;
   left: 50%;
-  top: 42%;
-  width: 100%;
-  max-width: 248px;
-  padding: 1.35rem 1.1rem;
-  margin-left: -124px;
-  border: 1px solid rgba(240, 240, 240, 0.35);
+  top: 50%;
+  box-sizing: border-box;
+  width: min(270px, 76vw);
+  max-width: 300px;
+  aspect-ratio: 5 / 7;
+  margin-left: 0;
+  padding: 1.5rem 1.25rem;
+  border: 1px solid rgba(240, 240, 240, 0.42);
+  border-radius: 8px;
   background: var(--bg);
-  text-align: left;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0;
-  transform: translateY(36px) scale(0.96);
+  /* Start above the stack; motion is vertical only (no rotate / tilt). */
+  transform: translate(-50%, calc(-50% - 240px));
   transition:
-    opacity 0.42s ease,
-    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.45s ease,
+    transform 0.62s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .synth-card-label {
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
+  font-size: clamp(0.78rem, 2.4vw, 0.95rem);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
-.synth-card--z3 {
-  z-index: 3;
-}
-
-.synth-card--z2 {
-  z-index: 2;
-}
-
-.synth-card--z1 {
-  z-index: 1;
-}
-
+/* Back of pile lower on screen; newest (2) highest. z-index set in JS per reveal. */
 .synth-card--in.synth-card--placed[data-synth-i="0"] {
   opacity: 1;
-  transform: translateY(0) rotate(-1.5deg);
+  transform: translate(-50%, calc(-50% + 34px));
 }
 
 .synth-card--in.synth-card--placed[data-synth-i="1"] {
   opacity: 1;
-  transform: translateY(16px) rotate(-4deg) scale(0.99);
+  transform: translate(-50%, calc(-50% + 17px));
 }
 
 .synth-card--in.synth-card--placed[data-synth-i="2"] {
   opacity: 1;
-  transform: translateY(32px) rotate(-6deg) scale(0.97);
+  transform: translate(-50%, calc(-50% + 0px));
 }
 
 /* Competitive ranks */
