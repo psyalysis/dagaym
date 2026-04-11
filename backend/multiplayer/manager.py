@@ -589,6 +589,7 @@ class LobbyManager:
                 return
             lobby.state = LobbyState.VOTING
             lobby.votes.clear()
+            lobby.slideshow_completed.clear()
             n = len(lobby.uploaded)
             unlock = time.time() + (0 if n == 0 else SLIDESHOW_SEGMENT_S * n)
             lobby.votes_unlock_at = unlock
@@ -718,6 +719,19 @@ class LobbyManager:
                     if pl is not None:
                         pl.wins += 1
 
+    async def slideshow_complete(self, player_id: str) -> None:
+        """Client finished playing all beats in the voting slideshow; allow their vote before max timer."""
+        async with self._lock:
+            lobby_id = self.player_lobby.get(player_id)
+            if not lobby_id:
+                return
+            lobby = self.lobbies.get(lobby_id)
+            if not lobby or lobby.state != LobbyState.VOTING:
+                return
+            if player_id not in lobby.players:
+                return
+            lobby.slideshow_completed.add(player_id)
+
     async def cast_vote(self, player_id: str, target_player_id: str) -> None:
         async with self._lock:
             lobby_id = self.player_lobby.get(player_id)
@@ -729,11 +743,12 @@ class LobbyManager:
                 await self.send_to(player_id, {"type": "error", "message": "Voting is not open."})
                 return
             if lobby.votes_unlock_at and time.time() < lobby.votes_unlock_at:
-                await self.send_to(
-                    player_id,
-                    {"type": "error", "message": "Votes unlock after the slideshow."},
-                )
-                return
+                if player_id not in lobby.slideshow_completed:
+                    await self.send_to(
+                        player_id,
+                        {"type": "error", "message": "Votes unlock after the slideshow."},
+                    )
+                    return
             if target_player_id == player_id:
                 await self.send_to(
                     player_id,
@@ -929,5 +944,7 @@ class LobbyManager:
             await self.player_cook_finished(player_id)
         elif t == "vote_cast":
             await self.cast_vote(player_id, str(data.get("target_player_id", "")))
+        elif t == "slideshow_complete":
+            await self.slideshow_complete(player_id)
         else:
             await self.send_to(player_id, {"type": "error", "message": f"Unknown message: {t}"})

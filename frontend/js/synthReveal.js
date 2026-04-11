@@ -4,10 +4,16 @@
 import { SYNTH_KEYS } from "./kitFromSeed.js";
 
 const REVEAL_STAGGER_MS = 1000;
+const SYNTH_PREVIEW_MAX_SEC = 2;
 
-function playBufferUntilEnd(audioContext, buffer) {
+function playSynthPreview(audioContext, buffer) {
   return new Promise((resolve, reject) => {
     if (!buffer) {
+      resolve();
+      return;
+    }
+    const dur = Math.min(SYNTH_PREVIEW_MAX_SEC, buffer.duration);
+    if (dur <= 0) {
       resolve();
       return;
     }
@@ -17,7 +23,7 @@ function playBufferUntilEnd(audioContext, buffer) {
     src.connect(audioContext.destination);
     void audioContext.resume().catch(() => {});
     try {
-      src.start(0);
+      src.start(0, 0, dur);
     } catch (e) {
       reject(e);
     }
@@ -99,7 +105,7 @@ export async function runSynthReveal(audioContext, synthBuffers, drumsStillLoadi
         card.classList.add("synth-card--placed");
       }
 
-      await playBufferUntilEnd(audioContext, buf);
+      await playSynthPreview(audioContext, buf);
       await delay(REVEAL_STAGGER_MS);
     }
 

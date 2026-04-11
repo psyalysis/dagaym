@@ -70,6 +70,7 @@ class Lobby:
     sounds: dict[str, str] | None = None
     votes: dict[str, str] = field(default_factory=dict)
     uploaded: set[str] = field(default_factory=set)
+    slideshow_completed: set[str] = field(default_factory=set)
     votes_unlock_at: float | None = None
     created_at: float = field(default_factory=time.time)
     results_at: float | None = None

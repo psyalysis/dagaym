@@ -120,12 +120,18 @@ export function mountVotingSlideshowScreen(root, ctx) {
       }
       activeWsur = null;
     }
+    try {
+      wsSock.send(JSON.stringify({ type: "slideshow_complete" }));
+    } catch {
+      /* ignore */
+    }
+    const nowSec = Date.now() / 1000;
     ctx.navigate(mountVoteSelectionScreen, {
       mpWs: wsSock,
       playerId,
       lobbyId: ctx.lobbyId,
       beats,
-      votesUnlockAt,
+      votesUnlockAt: Math.min(votesUnlockAt ?? nowSec, nowSec),
     });
   };
 
