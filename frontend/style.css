@@ -911,11 +911,13 @@ audio {
   bottom: 0.75rem;
   left: 0.75rem;
   z-index: 50;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 100px;
+  height: 100px;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(8, 6, 6, 0.94);
   backdrop-filter: blur(8px);
@@ -936,9 +938,10 @@ audio {
 }
 
 .discord-corner-icon {
-  width: 1.05rem;
-  height: auto;
   display: block;
+  width: 56px;
+  height: 42px;
+  flex-shrink: 0;
 }
 
 /* Fixed account — top-right, card above actions */
