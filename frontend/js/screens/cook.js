@@ -1,10 +1,19 @@
 /**
  * CookScreen — shared kit preview, download, 10:00 server timer.
  */
-import { authHeaders } from "../authApi.js";
+import { authHeaders, fetchMe } from "../authApi.js";
+import { RANK_BASELINE_KEY } from "../rankUi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { playSfxMinor } from "../sfx.js";
+import {
+  audioBufferToWavBase64,
+  fetchKitManifest,
+  loadDrumKitBase64Parallel,
+  loadSynthAudioBuffersParallel,
+  SYNTH_KEYS,
+} from "../kitFromSeed.js";
+import { runSynthReveal } from "../synthReveal.js";
 import { mountUploadScreen } from "./upload.js";
 
 const SOUND_KEYS = [
@@ -89,6 +98,77 @@ function formatTime(totalS) {
 function kitNeedsFetch(sounds) {
   if (!sounds || typeof sounds !== "object") return true;
   return !SOUND_KEYS.every((k) => Boolean(sounds[k]));
+}
+
+async function resolveSeedSpice(ctx) {
+  let seed = ctx.seed;
+  let spice = ctx.spice;
+  if (seed != null && spice != null && Number.isFinite(Number(seed)) && Number.isFinite(Number(spice))) {
+    return { seed: Number(seed), spice: Number(spice) };
+  }
+  const res = await fetch(
+    `${getApiBase()}/api/lobby/${encodeURIComponent(String(ctx.lobbyId))}/kit`,
+    { headers: authHeaders() },
+  );
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || res.statusText);
+  }
+  const data = await res.json();
+  if (data.seed == null || data.spice == null) throw new Error("Invalid kit metadata.");
+  return { seed: Number(data.seed), spice: Number(data.spice) };
+}
+
+async function buildKitClientSide(root, ctx, start) {
+  const { seed, spice } = await resolveSeedSpice(ctx);
+  const apiBase = getApiBase();
+  const ac = new AudioContext({ sampleRate: 44100 });
+  let drumsPending = true;
+
+  root.innerHTML = `
+    <div class="screen cook arcade-panel screen--vert-center">
+      <p class="arcade-status" id="cook-load">Loading kit…</p>
+    </div>`;
+  const loadEl = root.querySelector("#cook-load");
+
+  try {
+    const manifest = await fetchKitManifest(apiBase);
+    const drumPromise = loadDrumKitBase64Parallel({
+      seed,
+      spice,
+      apiBase,
+      audioContext: ac,
+      manifest,
+      onProgress: ({ step, total }) => {
+        if (loadEl) loadEl.textContent = `Loading kit ${step} / ${total}…`;
+      },
+    }).finally(() => {
+      drumsPending = false;
+    });
+
+    const synthBuffers = await loadSynthAudioBuffersParallel({
+      seed,
+      spice,
+      apiBase,
+      audioContext: ac,
+      manifest,
+    });
+
+    if (loadEl) loadEl.textContent = "";
+
+    await runSynthReveal(root, ac, synthBuffers, () => drumsPending);
+
+    const drumSounds = await drumPromise;
+    const sounds = { ...drumSounds };
+    for (const k of SYNTH_KEYS) {
+      sounds[k] = audioBufferToWavBase64(synthBuffers[k]);
+    }
+    await ac.close().catch(() => {});
+    start(sounds);
+  } catch (e) {
+    await ac.close().catch(() => {});
+    throw e;
+  }
 }
 
 /**
@@ -330,6 +410,10 @@ export function mountCookScreen(root, ctx) {
     return () => {};
   }
 
+  void fetchMe()
+    .then((me) => sessionStorage.setItem(RANK_BASELINE_KEY, String(me.rank_index ?? 0)))
+    .catch(() => {});
+
   let cancelled = false;
   let innerCleanup = () => {};
 
@@ -340,24 +424,9 @@ export function mountCookScreen(root, ctx) {
 
   if (kitNeedsFetch(ctx.sounds)) {
     mountAuthCornerLeave(ctx);
-    root.innerHTML = `
-    <div class="screen cook arcade-panel screen--vert-center">
-      <p class="arcade-status" id="cook-load">Loading kit…</p>
-    </div>`;
     void (async () => {
       try {
-        const res = await fetch(
-          `${getApiBase()}/api/lobby/${encodeURIComponent(String(ctx.lobbyId))}/kit`,
-          { headers: authHeaders() },
-        );
-        if (!res.ok) {
-          const t = await res.text();
-          throw new Error(t || res.statusText);
-        }
-        const data = await res.json();
-        if (cancelled) return;
-        if (!data.sounds) throw new Error("Invalid kit response.");
-        start(data.sounds);
+        await buildKitClientSide(root, ctx, start);
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : "Unknown error";

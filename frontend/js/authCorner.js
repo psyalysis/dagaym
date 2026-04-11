@@ -2,6 +2,7 @@
  * Fixed top-right account card + auth actions (cleared on each navigate from main.js).
  */
 import { clearAuthSession, fetchMe } from "./authApi.js";
+import { escapeHtml, rankBadgeHtml } from "./rankUi.js";
 import { playSfxMajor, playSfxMinor } from "./sfx.js";
 
 function ensureCornerEl() {
@@ -56,7 +57,9 @@ export function mountAuthCornerMenu(ctx, opts = {}) {
 
   fetchMe()
     .then((me) => {
-      if (nameEl) nameEl.textContent = me.username;
+      if (nameEl) {
+        nameEl.innerHTML = `${escapeHtml(me.username)}${rankBadgeHtml(me.rank)}`;
+      }
       if (winsEl) winsEl.textContent = `${me.wins} ${me.wins === 1 ? "win" : "wins"}`;
     })
     .catch(() => {

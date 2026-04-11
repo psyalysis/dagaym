@@ -1,7 +1,9 @@
 /**
  * ResultsScreen — winner and leaderboard.
  */
+import { fetchMe } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { RANK_BASELINE_KEY, RANK_PENDING_KEY } from "../rankUi.js";
 import { playSfxMinor } from "../sfx.js";
 
 export function mountResultsScreen(root, ctx) {
@@ -40,13 +42,31 @@ export function mountResultsScreen(root, ctx) {
     </div>
   `;
 
-  root.querySelector("#results-home")?.addEventListener("click", () => {
+  root.querySelector("#results-home")?.addEventListener("click", async () => {
     playSfxMinor();
     try {
       wsSock.close();
     } catch {
       /* ignore */
     }
+    const before = Number(sessionStorage.getItem(RANK_BASELINE_KEY) || "0");
+    try {
+      const me = await fetchMe();
+      const after = Number(me.rank_index ?? 0);
+      if (after > before && me.rank) {
+        sessionStorage.setItem(
+          RANK_PENDING_KEY,
+          JSON.stringify({
+            label: me.rank.label,
+            abbrev: me.rank.abbrev,
+            color: me.rank.color,
+          }),
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+    sessionStorage.removeItem(RANK_BASELINE_KEY);
     import("./modeSelect.js").then((m) => ctx.navigate(m.mountModeSelectScreen));
   });
 

@@ -2,6 +2,7 @@
  * ModeSelectScreen — Solo Cook vs Multiplayer Cook.
  */
 import { isLoggedIn } from "../authApi.js";
+import { RANK_PENDING_KEY, showRankUpOverlay } from "../rankUi.js";
 import { mountAuthCornerGuest, mountAuthCornerMenu } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountSoloScreen } from "../solo.js";
@@ -41,6 +42,17 @@ export function mountModeSelectScreen(root, ctx) {
     mountAuthCornerMenu(ctx, { primary: "leaderboard" });
   } else {
     mountAuthCornerGuest(ctx, { showHome: false });
+  }
+
+  try {
+    const raw = sessionStorage.getItem(RANK_PENDING_KEY);
+    if (raw) {
+      sessionStorage.removeItem(RANK_PENDING_KEY);
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object") showRankUpOverlay(data);
+    }
+  } catch {
+    /* ignore */
   }
 
   const solo = root.querySelector("#btn-solo");

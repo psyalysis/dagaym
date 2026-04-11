@@ -71,6 +71,62 @@ def load_audio_file(path: Path) -> tuple[np.ndarray, int]:
     return np.asarray(y, dtype=np.float64), int(sr)
 
 
+def load_wav_light_mono(path: Path) -> np.ndarray:
+    """
+    Load a ``.wav`` as mono float64 at ``SAMPLE_RATE`` using soundfile + linear resample.
+    Much faster and lighter than ``librosa.load`` — use for light kit sampling only.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+    data, sr = sf.read(str(path), always_2d=True)
+    if data.ndim == 2 and data.shape[1] > 1:
+        y = np.mean(data.astype(np.float64, copy=False), axis=1)
+    else:
+        y = np.asarray(data, dtype=np.float64).reshape(-1)
+    sr = int(sr)
+    if sr == SAMPLE_RATE:
+        return y
+    n_src = len(y)
+    if n_src == 0:
+        return y
+    duration = n_src / float(sr)
+    n_new = max(1, int(round(duration * SAMPLE_RATE)))
+    t_old = np.arange(n_src, dtype=np.float64) / float(sr)
+    t_new = np.linspace(0.0, duration, n_new, endpoint=False)
+    return np.interp(t_new, t_old, y).astype(np.float64)
+
+
+def load_wav_light_stereo(path: Path) -> np.ndarray:
+    """
+    Load ``.wav`` at ``SAMPLE_RATE`` using soundfile + linear resample per channel.
+    Returns shape ``(n,)`` for mono or ``(n, 2)`` for stereo (no downmix).
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+    data, sr = sf.read(str(path), always_2d=True)
+    x = np.asarray(data, dtype=np.float64)
+    sr = int(sr)
+    n_src, ch = int(x.shape[0]), int(x.shape[1])
+    if sr == SAMPLE_RATE:
+        y = x
+    else:
+        if n_src == 0:
+            y = x
+        else:
+            duration = n_src / float(sr)
+            n_new = max(1, int(round(duration * SAMPLE_RATE)))
+            t_old = np.arange(n_src, dtype=np.float64) / float(sr)
+            t_new = np.linspace(0.0, duration, n_new, endpoint=False)
+            y = np.zeros((n_new, ch), dtype=np.float64)
+            for c in range(ch):
+                y[:, c] = np.interp(t_new, t_old, x[:, c])
+    if ch == 1:
+        return np.asarray(y[:, 0], dtype=np.float64)
+    return y.astype(np.float64, copy=False)
+
+
 def _to_mono(y: np.ndarray) -> np.ndarray:
     x = np.asarray(y, dtype=np.float64)
     if x.ndim == 2:

@@ -25,16 +25,28 @@ from sqlalchemy.orm import Session
 from .auth import get_current_user, login_user, register_user
 from .database import get_db, init_db
 from .generator import generate_kit_light
+from .kit_manifest import build_kit_manifest
 from .kit_payload import encode_paths_to_sounds
 from .models import User
 from .multiplayer import LobbyManager
 from .multiplayer.lobby import LobbyState
 from .multiplayer.ws import router as ws_router
-from .schemas import LeaderboardEntry, LoginRequest, MeResponse, RegisterRequest, RegisterResponse, TokenResponse
+from .rank import rank_for_wins, rank_index_for_wins, rank_public_dict
+from .schemas import (
+    LeaderboardEntry,
+    LoginRequest,
+    MeResponse,
+    RankInfo,
+    RegisterRequest,
+    RegisterResponse,
+    TokenResponse,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 UPLOADS_ROOT = _PROJECT_ROOT / "uploads"
 FRONTEND_ROOT = _PROJECT_ROOT / "frontend"
+_DATASET_ROOT = _PROJECT_ROOT / "dataset"
+_KIT_MANIFEST_CACHE: dict[str, Any] | None = None
 
 MAX_BEAT_BYTES = 15 * 1024 * 1024
 
@@ -71,6 +83,15 @@ app.add_middleware(
 )
 
 app.include_router(ws_router)
+
+
+@app.get("/api/kit-manifest")
+def get_kit_manifest() -> dict[str, Any]:
+    """Sorted WAV paths per stem (cached); client uses with :func:`pick_index` parity."""
+    global _KIT_MANIFEST_CACHE
+    if _KIT_MANIFEST_CACHE is None:
+        _KIT_MANIFEST_CACHE = build_kit_manifest()
+    return _KIT_MANIFEST_CACHE
 
 
 class GenerateRequest(BaseModel):
@@ -113,9 +134,20 @@ def post_login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenRespon
     return login_user(db, body)
 
 
+def _me_response_from_user(user: User) -> MeResponse:
+    r = rank_for_wins(user.wins)
+    rank = RankInfo(key=r["key"], abbrev=r["abbrev"], label=r["label"], color=r["color"]) if r else None
+    return MeResponse(
+        username=user.username,
+        wins=user.wins,
+        rank=rank,
+        rank_index=rank_index_for_wins(user.wins),
+    )
+
+
 @app.get("/me", response_model=MeResponse)
 def get_me(user: User = Depends(get_current_user)) -> MeResponse:
-    return MeResponse(username=user.username, wins=user.wins)
+    return _me_response_from_user(user)
 
 
 @app.get("/leaderboard", response_model=list[LeaderboardEntry])
@@ -126,7 +158,19 @@ def get_leaderboard(db: Session = Depends(get_db)) -> list[LeaderboardEntry]:
         .limit(50)
         .all()
     )
-    return [LeaderboardEntry(username=r.username, wins=r.wins) for r in rows]
+    out: list[LeaderboardEntry] = []
+    for r in rows:
+        pub = rank_public_dict(r.wins)
+        rank = RankInfo(**pub) if pub else None
+        out.append(
+            LeaderboardEntry(
+                username=r.username,
+                wins=r.wins,
+                rank=rank,
+                rank_index=rank_index_for_wins(r.wins),
+            )
+        )
+    return out
 
 
 @app.get("/api/lobbies")
@@ -145,12 +189,12 @@ async def get_lobby_kit(
     request: Request,
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Multiplayer kit bytes (same as server-side generation); Bearer auth; player must be in lobby."""
+    """Seed/spice for rebuilding the kit in the browser (no WAV payload)."""
     manager: LobbyManager = request.app.state.manager
-    sounds = manager.get_lobby_kit_for_user(lobby_id, user.id)
-    if sounds is None:
+    meta = manager.get_lobby_kit_meta_for_user(lobby_id, user.id)
+    if meta is None:
         raise HTTPException(status_code=404, detail="Kit not available.")
-    return {"sounds": sounds}
+    return meta
 
 
 def _sniff_audio(buf: bytes) -> str | None:
@@ -234,6 +278,13 @@ async def get_beat(
     mt = "audio/mpeg" if path.suffix.lower() == ".mp3" else "audio/wav"
     return FileResponse(path, media_type=mt, filename=path.name)
 
+
+if _DATASET_ROOT.is_dir():
+    app.mount(
+        "/media/dataset",
+        StaticFiles(directory=str(_DATASET_ROOT)),
+        name="dataset_media",
+    )
 
 if FRONTEND_ROOT.is_dir():
     app.mount("/", StaticFiles(directory=str(FRONTEND_ROOT), html=True), name="site")

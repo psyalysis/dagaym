@@ -1,0 +1,15 @@
+{
+  "seed": 4242,
+  "spice": 0.5,
+  "key_order": ["snare", "clap", "synth1"],
+  "lists": {
+    "snare": ["snares/a.wav", "snares/b.wav", "snares/c.wav"],
+    "clap": ["claps/x.wav"],
+    "synth1": ["synths/s0.wav", "synths/s1.wav"]
+  },
+  "expected_pick": {
+    "snare": "snares/b.wav",
+    "clap": "claps/x.wav",
+    "synth1": "synths/s0.wav"
+  }
+}

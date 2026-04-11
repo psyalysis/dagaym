@@ -2,17 +2,10 @@
  * Global leaderboard by wins.
  */
 import { fetchLeaderboard, isLoggedIn } from "../authApi.js";
+import { escapeHtml, rankBadgeHtml } from "../rankUi.js";
 import { mountAuthCornerGuest, mountAuthCornerMenu } from "../authCorner.js";
 import { playSfxMinor } from "../sfx.js";
 import { mountModeSelectScreen } from "./modeSelect.js";
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 export function mountLeaderboardScreen(root, ctx) {
   root.innerHTML = `
@@ -57,7 +50,7 @@ export function mountLeaderboardScreen(root, ctx) {
           (r, i) => `
         <div class="lb-row">
           <span>${i + 1}</span>
-          <span>${escapeHtml(r.username)}</span>
+          <span class="lb-player">${escapeHtml(r.username)}${rankBadgeHtml(r.rank)}</span>
           <span>${escapeHtml(String(r.wins))}</span>
         </div>`,
         )

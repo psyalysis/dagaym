@@ -30,6 +30,8 @@ from .audio_utils import (
     load_audio_file,
     list_category_wavs,
     load_random_sample,
+    load_wav_light_mono,
+    load_wav_light_stereo,
     normalize_audio,
     quality_check,
     save_audio,
@@ -37,6 +39,7 @@ from .audio_utils import (
     transient_boost,
 )
 from .kit_config import DEFAULT_CONFIG_PATH, load_kit_config, resolve_sound
+from .kit_rng import pick_index
 
 # Project root is parent of ``backend/`` (``dataset/`` and ``generated/`` live there).
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -512,12 +515,14 @@ _LIGHT_KIT_KEYS: tuple[str, ...] = (
 )
 
 
-def generate_light_stem(seed: int, slot_index: int, logical: str, out_dir: Path) -> Path:
+def generate_light_stem(
+    seed: int, slot_index: int, logical: str, out_dir: Path, spice: float = 0.3
+) -> Path:
     """
-    Pick one random ``.wav`` for the slot, resample to mono 44.1 kHz, save.
-    No saturation, filters, layering, or quality retries — minimal CPU/RAM.
+    Pick one deterministic ``.wav`` for the slot (portable RNG + ``spice``), resample to 44.1 kHz, save.
+    Stereo sources stay stereo; mono stays mono. No DSP chain.
     """
-    rng = np.random.default_rng(seed + slot_index * 1_000_003)
+    s = float(np.clip(spice, 0.0, 1.0))
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -528,11 +533,13 @@ def generate_light_stem(seed: int, slot_index: int, logical: str, out_dir: Path)
         wavs = sorted(p for p in synth_dir.iterdir() if p.is_file() and p.suffix.lower() == ".wav")
         if not wavs:
             raise ValueError(f"No .wav files in {synth_dir}.")
-        path_pick = wavs[int(rng.integers(0, len(wavs)))]
-        y, _sr = load_audio_file(path_pick)
+        path_pick = wavs[pick_index(seed, slot_index, s, len(wavs))]
+        y = load_wav_light_stereo(path_pick)
     else:
         d = _dataset_dir(logical)
-        y, _sr = load_random_sample(d, rng)
+        wavs = list_category_wavs(d)
+        path_pick = wavs[pick_index(seed, slot_index, s, len(wavs))]
+        y = load_wav_light_stereo(path_pick)
 
     dest = out_dir / f"{logical}.wav"
     save_audio(y, dest, SAMPLE_RATE)
@@ -546,13 +553,13 @@ def generate_kit_light(
 ) -> dict[str, Path]:
     """
     Build a full kit by sampling the dataset only (no DSP chain).
-    ``spice`` is kept for API compatibility with :func:`generate_kit` but is unused.
+    ``spice`` feeds :func:`pick_index` so kit selection varies with heat level.
     """
-    _ = float(np.clip(spice, 0.0, 1.0))
+    s = float(np.clip(spice, 0.0, 1.0))
     out_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     _cleanup_stale_outputs(out_dir)
     out: dict[str, Path] = {}
     for i, key in enumerate(_LIGHT_KIT_KEYS):
-        out[key] = generate_light_stem(seed, i, key, out_dir)
+        out[key] = generate_light_stem(seed, i, key, out_dir, spice=s)
     return out

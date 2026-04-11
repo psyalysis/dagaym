@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from ..rank import rank_public_dict
+
 # Match spec: three spice cards map to these generation intensities.
 SPICE_MILD = 0.25
 SPICE_MEDIUM = 0.5
@@ -53,6 +55,7 @@ class Player:
     id: str
     name: str
     user_id: int
+    wins: int = 0
     ready: bool = False
 
 
@@ -78,7 +81,12 @@ class Lobby:
         drumkit: dict[str, Any] = {}
         if self.seed is not None:
             drumkit["seed"] = self.seed
-        if self.sounds:
+        if self.seed is not None and self.state in (
+            LobbyState.COOKING,
+            LobbyState.UPLOAD,
+            LobbyState.VOTING,
+            LobbyState.RESULTS,
+        ):
             drumkit["has_kit"] = True
         return {
             "lobby_id": self.id,
@@ -88,7 +96,13 @@ class Lobby:
             "host_id": host_id,
             "cook_duration_min": self.cook_duration_min,
             "players": [
-                {"id": p.id, "name": p.name, "ready": p.ready} for p in self.players.values()
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "ready": p.ready,
+                    "rank": rank_public_dict(p.wins),
+                }
+                for p in self.players.values()
             ],
             "drumkit": drumkit,
             "votes": dict(self.votes),

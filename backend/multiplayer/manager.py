@@ -9,7 +9,6 @@ import json
 import random
 import secrets
 import shutil
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -18,8 +17,7 @@ from starlette.websockets import WebSocket
 
 from ..auth import increment_wins_for_users
 from ..database import SessionLocal
-from ..generator import generate_light_stem
-from ..kit_payload import API_SOUND_KEYS, encode_paths_to_sounds
+from ..models import User
 from .lobby import (
     ALLOWED_SPICES,
     COOK_DURATION_MIN_OPTIONS,
@@ -62,20 +60,13 @@ def _normalize_cook_duration_min(raw: Any) -> int | None:
     return None
 
 
-def _kit_progress_message(key: str) -> str:
-    return {
-        "snare": "Picking a snare sample…",
-        "clap": "Picking a clap sample…",
-        "hihat": "Picking a hi-hat sample…",
-        "open_hat": "Picking an open hat sample…",
-        "808": "Picking an 808 sample…",
-        "perc": "Picking a percussion sample…",
-        "fx": "Picking an FX sample…",
-        "vox": "Picking a vocal sample…",
-        "synth1": "Picking a synth sample…",
-        "synth2": "Picking a synth sample…",
-        "synth3": "Picking a synth sample…",
-    }.get(key, f"Loading {key}…")
+def _user_wins_sync(user_id: int) -> int:
+    db = SessionLocal()
+    try:
+        u = db.get(User, user_id)
+        return int(u.wins) if u is not None else 0
+    finally:
+        db.close()
 
 
 def _normalize_player_spices(data: dict[str, Any]) -> list[float] | None:
@@ -145,10 +136,10 @@ class LobbyManager:
         p = lobby.players.get(player_id)
         return p is not None and p.user_id == user_id
 
-    def get_lobby_kit_for_user(self, lobby_id: str, user_id: int) -> dict[str, str] | None:
-        """Return cached kit for this account if they are in the lobby and the kit exists."""
+    def get_lobby_kit_meta_for_user(self, lobby_id: str, user_id: int) -> dict[str, Any] | None:
+        """Return ``seed`` / ``spice`` for clients that rebuild the kit locally."""
         lobby = self.lobbies.get(lobby_id)
-        if not lobby or lobby.sounds is None:
+        if not lobby or lobby.seed is None:
             return None
         if self.player_id_for_user_in_lobby(lobby_id, user_id) is None:
             return None
@@ -159,7 +150,7 @@ class LobbyManager:
             LobbyState.RESULTS,
         ):
             return None
-        return lobby.sounds
+        return {"seed": lobby.seed, "spice": lobby.spice}
 
     def attach_ws(self, player_id: str, ws: WebSocket) -> None:
         self.player_ws[player_id] = ws
@@ -230,6 +221,7 @@ class LobbyManager:
             await self.send_to(player_id, {"type": "error", "message": "Not authenticated."})
             return
         user_id, display_name = sess
+        wins = await asyncio.to_thread(_user_wins_sync, user_id)
         host_spice = sorted(spices)[0]
         async with self._lock:
             if player_id in self.player_lobby:
@@ -242,7 +234,7 @@ class LobbyManager:
             )
             self.lobbies[lobby.id] = lobby
             lobby.players[player_id] = Player(
-                id=player_id, name=display_name, user_id=user_id, ready=False
+                id=player_id, name=display_name, user_id=user_id, wins=wins, ready=False
             )
             self.player_lobby[player_id] = lobby.id
 
@@ -255,6 +247,7 @@ class LobbyManager:
             await self.send_to(player_id, {"type": "error", "message": "Not authenticated."})
             return
         user_id, display_name = sess
+        wins = await asyncio.to_thread(_user_wins_sync, user_id)
         async with self._lock:
             if player_id in self.player_lobby:
                 await self.send_to(player_id, {"type": "error", "message": "Already in a lobby."})
@@ -286,7 +279,7 @@ class LobbyManager:
                 )
                 return
             lobby.players[player_id] = Player(
-                id=player_id, name=display_name, user_id=user_id, ready=False
+                id=player_id, name=display_name, user_id=user_id, wins=wins, ready=False
             )
             self.player_lobby[player_id] = lobby.id
 
@@ -299,6 +292,7 @@ class LobbyManager:
             await self.send_to(player_id, {"type": "error", "message": "Not authenticated."})
             return
         user_id, display_name = sess
+        wins = await asyncio.to_thread(_user_wins_sync, user_id)
         async with self._lock:
             if player_id in self.player_lobby:
                 await self.send_to(player_id, {"type": "error", "message": "Already in a lobby."})
@@ -336,7 +330,7 @@ class LobbyManager:
                 )
                 return
             lobby.players[player_id] = Player(
-                id=player_id, name=display_name, user_id=user_id, ready=False
+                id=player_id, name=display_name, user_id=user_id, wins=wins, ready=False
             )
             self.player_lobby[player_id] = lobby.id
 
@@ -472,76 +466,17 @@ class LobbyManager:
                 return
             seed = random.randint(0, 2**31 - 1)
             lobby.seed = seed
-            lobby.state = LobbyState.GENERATING
+            lobby.sounds = None
+            lobby.state = LobbyState.COOKING
             spice = lobby.spice
             lobby.cook_finished.clear()
-            snap_start = lobby.lobby_snapshot()
-
-        await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap_start})
-        total_steps = len(API_SOUND_KEYS)
-        await self.broadcast(
-            lobby_id,
-            {
-                "type": "kit_progress",
-                "step": 0,
-                "total": total_steps,
-                "message": "Preparing kit…",
-                "percent": 0,
-            },
-        )
-
-        tmp = tempfile.mkdtemp(prefix="kit_")
-        try:
-            paths: dict[str, Path] = {}
-            tmp_path = Path(tmp)
-            for i, key in enumerate(API_SOUND_KEYS):
-                p = await asyncio.to_thread(generate_light_stem, seed, i, key, tmp_path)
-                paths[key] = p
-                pct = int((i + 1) / total_steps * 100)
-                await self.broadcast(
-                    lobby_id,
-                    {
-                        "type": "kit_progress",
-                        "step": i + 1,
-                        "total": total_steps,
-                        "label": key,
-                        "message": _kit_progress_message(key),
-                        "percent": pct,
-                    },
-                )
-            sounds = await asyncio.to_thread(encode_paths_to_sounds, paths)
-        except Exception as e:
-            async with self._lock:
-                L = self.lobbies.get(lobby_id)
-                if L:
-                    L.state = LobbyState.LOBBY
-                    L.seed = None
-                    for p in L.players.values():
-                        p.ready = False
-                    snap = L.lobby_snapshot()
-                else:
-                    snap = None
-            await self.broadcast(
-                lobby_id,
-                {"type": "error", "message": f"Kit generation failed: {e!s}"},
-            )
-            if snap:
-                await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
-            return
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-
-        async with self._lock:
-            lobby = self.lobbies.get(lobby_id)
-            if not lobby:
-                return
-            lobby.sounds = sounds
-            lobby.state = LobbyState.COOKING
             lobby.uploaded.clear()
             lobby.votes.clear()
             lobby.votes_unlock_at = None
             cook_min = lobby.cook_duration_min
+            snap = lobby.lobby_snapshot()
 
+        await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
         await self.broadcast(
             lobby_id,
             {
@@ -774,6 +709,14 @@ class LobbyManager:
                     db.close()
 
             await asyncio.to_thread(_persist_wins)
+
+        async with self._lock:
+            lobby_after = self.lobbies.get(lobby_id)
+            if lobby_after:
+                for wid in winners:
+                    pl = lobby_after.players.get(wid)
+                    if pl is not None:
+                        pl.wins += 1
 
     async def cast_vote(self, player_id: str, target_player_id: str) -> None:
         async with self._lock:

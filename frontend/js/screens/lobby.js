@@ -2,6 +2,7 @@
  * LobbyScreen — player list, ready, start_game → Cook.
  */
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { escapeHtml, rankBadgeHtml } from "../rankUi.js";
 import { playSfxBeatBattle, playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountCookScreen } from "./cook.js";
 
@@ -15,11 +16,16 @@ function renderLobby(root, lobby, selfId, kitProgress) {
   const kitMsg = kitProgress?.message || "Preparing kit…";
   const step = kitProgress?.step ?? 0;
   const total = kitProgress?.total ?? 11;
+  const label = kitProgress?.label;
+  const stepLine =
+    label && step > 0
+      ? `${step} / ${total} — ${String(label).replace(/_/g, " ")}`
+      : `${step} / ${total}`;
   const rows = players
     .map(
       (p) => `
     <div class="lobby-row">
-      <span class="lobby-name">${escapeHtml(p.name)}${p.id === hostId ? " · host" : ""}</span>
+      <span class="lobby-name">${escapeHtml(p.name)}${rankBadgeHtml(p.rank)}${p.id === hostId ? " · host" : ""}</span>
       <span class="lobby-ready">${p.ready ? "✔" : ""}</span>
     </div>
   `,
@@ -61,7 +67,7 @@ function renderLobby(root, lobby, selfId, kitProgress) {
           <div class="lobby-kit-progress" aria-hidden="true">
             <div class="lobby-kit-progress-fill" style="width:${pct}%"></div>
           </div>
-          <p class="arcade-hint lobby-kit-overlay-step">${step} / ${total}</p>
+          <p class="arcade-hint lobby-kit-overlay-step">${escapeHtml(stepLine)}</p>
         </div>
       </div>`
           : ""
@@ -69,14 +75,6 @@ function renderLobby(root, lobby, selfId, kitProgress) {
     </div>
   `;
   root.dataset.selfId = selfId;
-}
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 export function mountLobbyScreen(root, ctx) {

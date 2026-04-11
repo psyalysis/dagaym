@@ -1,9 +1,17 @@
 /**
- * Solo Cook — POST /generate, WaveSurfer, ZIP (unchanged API).
+ * Solo Cook — client-side light kit (manifest + dataset), same path as multiplayer.
  */
 import { mountAuthCornerLeave } from "./authCorner.js";
 import { getApiBase } from "./apiOrigin.js";
+import {
+  audioBufferToWavBase64,
+  fetchKitManifest,
+  loadDrumKitBase64Parallel,
+  loadSynthAudioBuffersParallel,
+  SYNTH_KEYS,
+} from "./kitFromSeed.js";
 import { playSfxMajor, playSfxMinor, playSfxOn } from "./sfx.js";
+import { runSynthReveal } from "./synthReveal.js";
 
 const SOUND_KEYS = [
   "snare",
@@ -54,6 +62,21 @@ export function mountSoloScreen(root, ctx) {
   const clickFullPlayback = new Map();
   let lastSoundsB64 = null;
   let kitGridBuilt = false;
+  /** @type {HTMLElement | null} */
+  let activeKitOverlay = null;
+  /** @type {AudioContext | null} */
+  let activeKitAc = null;
+
+  const clearKitLoadUi = () => {
+    if (activeKitOverlay) {
+      activeKitOverlay.remove();
+      activeKitOverlay = null;
+    }
+    if (activeKitAc) {
+      void activeKitAc.close().catch(() => {});
+      activeKitAc = null;
+    }
+  };
 
   const destroyWaveSurfers = () => {
     waveSurfers.forEach((ws) => {
@@ -109,6 +132,7 @@ export function mountSoloScreen(root, ctx) {
 
   root.querySelector("#solo-back")?.addEventListener("click", async () => {
     playSfxMinor();
+    clearKitLoadUi();
     destroyWaveSurfers();
     const m = await import("./screens/modeSelect.js");
     ctx.navigate(m.mountModeSelectScreen);
@@ -295,9 +319,10 @@ export function mountSoloScreen(root, ctx) {
     const btnGen = root.querySelector("#btn-generate");
     const btnReg = root.querySelector("#btn-regenerate");
     const spiceNum = spiceEl ? parseFloat(spiceEl.value) : 0.3;
+    const screen = root.querySelector(".screen.solo");
 
     const loading = () => {
-      if (status) status.textContent = "Forging battle kit...";
+      if (status) status.textContent = "";
       if (btnGen instanceof HTMLButtonElement) btnGen.disabled = true;
       if (btnReg instanceof HTMLButtonElement) btnReg.disabled = true;
     };
@@ -307,29 +332,76 @@ export function mountSoloScreen(root, ctx) {
     };
 
     playSfxMajor();
+    clearKitLoadUi();
     loading();
+    if (!screen) {
+      doneLoading();
+      if (status) status.textContent = "UI error.";
+      return;
+    }
+
+    const seed = Math.floor(Math.random() * 0x80000000);
+    const base = resolveApiBase(ctx);
+    const overlay = document.createElement("div");
+    overlay.className = "solo-kit-overlay";
+    overlay.setAttribute("role", "status");
+    overlay.innerHTML = '<p class="arcade-status" id="solo-kit-load">Loading kit…</p>';
+    screen.appendChild(overlay);
+    activeKitOverlay = overlay;
+    const loadEl = overlay.querySelector("#solo-kit-load");
+
+    const ac = new AudioContext({ sampleRate: 44100 });
+    activeKitAc = ac;
+    let drumsPending = true;
+
     try {
-      const base = resolveApiBase(ctx);
-      const res = await fetch(`${base}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spice: spiceNum, seed: null }),
+      const manifest = await fetchKitManifest(base);
+      const drumPromise = loadDrumKitBase64Parallel({
+        seed,
+        spice: spiceNum,
+        apiBase: base,
+        audioContext: ac,
+        manifest,
+        onProgress: ({ step, total }) => {
+          if (loadEl) loadEl.textContent = `Loading kit ${step} / ${total}…`;
+        },
+      }).finally(() => {
+        drumsPending = false;
       });
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || res.statusText);
+
+      const synthBuffers = await loadSynthAudioBuffersParallel({
+        seed,
+        spice: spiceNum,
+        apiBase: base,
+        audioContext: ac,
+        manifest,
+      });
+
+      if (loadEl) loadEl.textContent = "";
+      await runSynthReveal(overlay, ac, synthBuffers, () => drumsPending);
+
+      const drumSounds = await drumPromise;
+      const sounds = { ...drumSounds };
+      for (const k of SYNTH_KEYS) {
+        sounds[k] = audioBufferToWavBase64(synthBuffers[k]);
       }
-      const data = await res.json();
-      lastSoundsB64 = data.sounds;
+
+      await ac.close().catch(() => {});
+      activeKitAc = null;
+      overlay.remove();
+      activeKitOverlay = null;
+
+      lastSoundsB64 = sounds;
       if (!kitGridBuilt) buildGrid();
       setKitUiVisible(true);
-      attachSounds(data.sounds);
-      if (status) status.textContent = "";
+      attachSounds(sounds);
     } catch (e) {
       console.error(e);
-      if (status)
+      clearKitLoadUi();
+      if (status) {
         status.textContent =
-          e instanceof Error ? e.message : "Generation failed. Is the API running?";
+          e instanceof Error ? e.message : "Could not load kit. Is the API running?";
+      }
     } finally {
       doneLoading();
     }
@@ -358,6 +430,7 @@ export function mountSoloScreen(root, ctx) {
   });
 
   return () => {
+    clearKitLoadUi();
     destroyWaveSurfers();
     root.innerHTML = "";
   };

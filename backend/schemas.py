@@ -37,11 +37,22 @@ class RegisterResponse(BaseModel):
     message: str
 
 
+class RankInfo(BaseModel):
+    key: str
+    abbrev: str
+    label: str
+    color: str
+
+
 class LeaderboardEntry(BaseModel):
     username: str
     wins: int
+    rank: RankInfo | None = None
+    rank_index: int = 0
 
 
 class MeResponse(BaseModel):
     username: str
     wins: int
+    rank: RankInfo | None = None
+    rank_index: int = 0
