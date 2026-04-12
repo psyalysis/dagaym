@@ -10,6 +10,7 @@ import {
 } from "../mpPresenceToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { escapeHtml, rankBadgeHtml } from "../rankUi.js";
+import { supporterDisplayNameInnerHtml } from "../supporters.js";
 import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
 import { playSfxBeatBattle, playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountCookScreen } from "./cook.js";
@@ -39,7 +40,7 @@ function renderLobby(root, lobby, selfId, kitProgress) {
     .map(
       (p) => `
     <div class="lobby-row">
-      <span class="lobby-name">${escapeHtml(p.name)}${rankBadgeHtml(p.rank)}${p.id === hostId ? " · host" : ""}</span>
+      <span class="lobby-name">${supporterDisplayNameInnerHtml(p.name)}${rankBadgeHtml(p.rank)}${p.id === hostId ? " · host" : ""}</span>
       <span class="lobby-ready">${p.ready ? "✔" : ""}</span>
     </div>
   `,

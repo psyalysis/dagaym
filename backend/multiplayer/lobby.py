@@ -81,6 +81,8 @@ class Lobby:
     cook_finished: set[str] = field(default_factory=set)
     # player_id -> unix time of last mp_chat send (text or emoji)
     chat_last_sent: dict[str, float] = field(default_factory=dict)
+    # RESULTS only: player_ids who voted to rematch
+    rematch_pending: set[str] = field(default_factory=set)
 
     def lobby_snapshot(self) -> dict[str, Any]:
         host_id = next(iter(self.players)) if self.players else ""

@@ -11,6 +11,7 @@ import {
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
 import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
+import { supporterDisplayNameInnerHtml } from "../supporters.js";
 import { playSfxMinor } from "../sfx.js";
 import { mountVoteSelectionScreen } from "./voteSelection.js";
 
@@ -207,7 +208,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     card.setAttribute("role", "status");
     const toastName = document.createElement("span");
     toastName.className = "lobby-wave-toast-name";
-    toastName.textContent = fromName;
+    toastName.innerHTML = supporterDisplayNameInnerHtml(fromName);
     const emojiEl = document.createElement("span");
     emojiEl.className = "lobby-wave-toast-emoji";
     emojiEl.setAttribute("aria-hidden", "true");
@@ -270,7 +271,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     if (reactionsEl) {
       reactionsEl.hidden = !listeningOthers;
     }
-    if (nameEl) nameEl.textContent = String(b.name ?? "");
+    if (nameEl) nameEl.innerHTML = supporterDisplayNameInnerHtml(String(b.name ?? ""));
     if (titleEl) titleEl.textContent = "NOW PLAYING";
     if (progEl) progEl.textContent = `${idx + 1} / ${beats.length}`;
     if (waveEl) waveEl.innerHTML = "";

@@ -342,8 +342,15 @@ audio {
   padding-block: clamp(0.85rem, 2.5vw, 2rem);
 }
 
+/* Reserve space for fixed .mp-chat (log + composer + quick row); default ~13.5rem. */
 body.mp-chat-open .app-root {
-  padding-bottom: max(11.5rem, calc(2.8rem + env(safe-area-inset-bottom, 0px)));
+  padding-bottom: max(13.5rem, calc(2.8rem + env(safe-area-inset-bottom, 0px)));
+}
+
+/* Kit grid last row (e.g. 808) sits low — extra scroll room so it clears the chat. */
+body.mp-chat-open .app-root:has(#mp-sound-grid),
+body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
+  padding-bottom: max(19rem, calc(5rem + env(safe-area-inset-bottom, 0px)));
 }
 
 /* Fixed match chat (lobby → results) */
@@ -1143,6 +1150,11 @@ body.mp-chat-open .app-root {
   box-shadow: 0 0 0 1px rgba(200, 72, 72, 0.22);
 }
 
+.mp-presence-toast--rematch {
+  border: 1px solid rgba(200, 170, 72, 0.95);
+  box-shadow: 0 0 0 1px rgba(200, 170, 72, 0.22);
+}
+
 .mp-presence-toast--visible {
   opacity: 1;
   transform: translateY(0);
@@ -1443,6 +1455,45 @@ body.mp-chat-open .app-root {
   }
 }
 
+.results-rematch {
+  margin: 1.5rem 0 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.results-rematch-title {
+  margin-bottom: 0.65rem;
+}
+
+.results-rematch-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.results-rematch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.results-rematch-tick {
+  flex: 0 0 1.1rem;
+  width: 1.1rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(120, 200, 130, 0.95);
+}
+
+.results-rematch-name {
+  min-width: 0;
+}
+
 .upload-timer {
   font-variant-numeric: tabular-nums;
   font-size: 1.35rem;
@@ -1515,12 +1566,12 @@ body.mp-chat-open .app-root {
   border-bottom-color: rgba(255, 255, 255, 0.14);
 }
 
-.lb-row span:first-child {
+.lb-row > span:first-child {
   color: var(--red);
   text-align: center;
 }
 
-.lb-row span:last-child {
+.lb-row > span:last-child {
   text-align: right;
   color: var(--text-heading);
 }
@@ -1568,6 +1619,16 @@ body.mp-chat-open .app-root {
   width: 42px;
   height: 32px;
   flex-shrink: 0;
+}
+
+/* Supporter heart + shared cursor-tooltip target */
+.supporter-wrap {
+  display: inline;
+  cursor: default;
+}
+
+.supporter-heart {
+  margin-right: 0.12em;
 }
 
 .corner-social-tooltip {

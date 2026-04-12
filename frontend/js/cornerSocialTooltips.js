@@ -1,5 +1,6 @@
 /**
- * Cursor-following tooltips for .corner-social-link anchors with data-corner-tooltip.
+ * Cursor-following tooltips for any element with `data-corner-tooltip` (delegated).
+ * Same UX as the corner social links.
  */
 
 const OFFSET_X = 14;
@@ -33,9 +34,6 @@ function positionTip(el, clientX, clientY) {
 }
 
 export function initCornerSocialTooltips() {
-  const stack = document.querySelector(".corner-social-stack");
-  if (!stack) return;
-
   let tip = document.getElementById("corner-social-tooltip");
   if (!tip) {
     tip = document.createElement("div");
@@ -46,36 +44,56 @@ export function initCornerSocialTooltips() {
     document.body.appendChild(tip);
   }
 
-  const links = stack.querySelectorAll("a.corner-social-link[data-corner-tooltip]");
-  if (!links.length) return;
-
+  /** @type {HTMLElement | null} */
+  let activeHost = null;
   let label = "";
 
   const hide = () => {
     tip.classList.add("corner-social-tooltip--hidden");
     tip.setAttribute("aria-hidden", "true");
+    activeHost = null;
     label = "";
   };
 
   /** @param {PointerEvent} ev */
-  const onMove = (ev) => {
+  const onPointerMove = (ev) => {
     if (!label) return;
     tip.textContent = label;
     positionTip(tip, ev.clientX, ev.clientY);
   };
 
-  for (const a of links) {
-    a.addEventListener("pointerenter", (ev) => {
-      const t = a.getAttribute("data-corner-tooltip");
-      if (!t) return;
-      label = t;
+  document.addEventListener(
+    "pointerover",
+    (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
+      const host = t.closest("[data-corner-tooltip]");
+      if (!(host instanceof HTMLElement)) return;
+      const text = host.getAttribute("data-corner-tooltip");
+      if (!text) return;
+      if (activeHost === host) return;
+      activeHost = host;
+      label = text;
       tip.textContent = label;
       positionTip(tip, ev.clientX, ev.clientY);
       tip.classList.remove("corner-social-tooltip--hidden");
       tip.setAttribute("aria-hidden", "false");
-    });
-    a.addEventListener("pointermove", onMove);
-    a.addEventListener("pointerleave", hide);
-    a.addEventListener("pointercancel", hide);
-  }
+    },
+    true,
+  );
+
+  document.addEventListener("pointermove", onPointerMove, true);
+
+  document.addEventListener(
+    "pointerout",
+    (ev) => {
+      if (!activeHost) return;
+      const next = ev.relatedTarget;
+      if (next instanceof Node && activeHost.contains(next)) return;
+      hide();
+    },
+    true,
+  );
+
+  document.addEventListener("pointercancel", hide, true);
 }

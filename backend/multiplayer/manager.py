@@ -707,6 +707,7 @@ class LobbyManager:
                 return
             lobby.state = LobbyState.RESULTS
             lobby.results_at = time.time()
+            lobby.rematch_pending.clear()
             counts: dict[str, int] = {}
             for target in lobby.votes.values():
                 counts[target] = counts.get(target, 0) + 1
@@ -747,6 +748,10 @@ class LobbyManager:
                     }
                 )
 
+            participants = [
+                {"player_id": pid, "name": lobby.players[pid].name} for pid in lobby.players
+            ]
+
         await self.broadcast(
             lobby_id,
             {
@@ -757,6 +762,7 @@ class LobbyManager:
                 "leaderboard": leaderboard,
                 "beats": beats_out,
                 "no_winner_two_players": no_winner_two_players,
+                "participants": participants,
             },
         )
 
@@ -957,6 +963,100 @@ class LobbyManager:
         if should_finalize:
             await self._finalize_results(lobby_id)
 
+    def _delete_lobby_upload_dir_only(self, lobby_id: str) -> None:
+        """Cancel tasks and remove upload dir; does not pop lobby or auth (used after rematch migration)."""
+        t = self._cook_tasks.pop(lobby_id, None)
+        if t:
+            t.cancel()
+        t = self._upload_tasks.pop(lobby_id, None)
+        if t:
+            t.cancel()
+        t = self._vote_tasks.pop(lobby_id, None)
+        if t:
+            t.cancel()
+        d = self.uploads_root / lobby_id
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
+
+    async def _rematch_to_new_lobby(self, old_id: str) -> None:
+        new_id: str | None = None
+        new_snap: dict[str, Any] | None = None
+        async with self._lock:
+            old = self.lobbies.get(old_id)
+            if not old or old.state != LobbyState.RESULTS:
+                return
+            if set(old.players.keys()) != old.rematch_pending:
+                return
+            new_id = self._new_lobby_id()
+            new_lobby = Lobby(
+                id=new_id,
+                spice=old.spice,
+                is_public=old.is_public,
+                cook_duration_min=old.cook_duration_min,
+            )
+            for pid, p in old.players.items():
+                new_lobby.players[pid] = Player(
+                    id=p.id,
+                    name=p.name,
+                    user_id=p.user_id,
+                    wins=p.wins,
+                    ready=False,
+                )
+                self.player_lobby[pid] = new_id
+            self.lobbies[new_id] = new_lobby
+            del self.lobbies[old_id]
+            new_snap = new_lobby.lobby_snapshot()
+
+        self._delete_lobby_upload_dir_only(old_id)
+        if new_id is not None and new_snap is not None:
+            await self.broadcast(new_id, {"type": "lobby_update", "lobby": new_snap})
+
+    async def rematch_vote(self, player_id: str) -> None:
+        err: str | None = None
+        lobby_id: str | None = None
+        voted_ids: list[str] = []
+        voter_name = ""
+        voter_id = ""
+        broadcast_vote = False
+        all_voted = False
+        async with self._lock:
+            lid = self.player_lobby.get(player_id)
+            if not lid:
+                err = "Not in a lobby."
+            else:
+                lobby = self.lobbies.get(lid)
+                if not lobby or lobby.state != LobbyState.RESULTS:
+                    err = "Rematch is only available on the results screen."
+                elif player_id not in lobby.players:
+                    pass
+                elif player_id in lobby.rematch_pending:
+                    pass
+                else:
+                    lobby.rematch_pending.add(player_id)
+                    lobby_id = lid
+                    voted_ids = list(lobby.rematch_pending)
+                    voter_name = lobby.players[player_id].name
+                    voter_id = player_id
+                    broadcast_vote = True
+                    all_voted = set(lobby.players.keys()) == lobby.rematch_pending
+        if err:
+            await self.send_player_error(player_id, err)
+            return
+        if not broadcast_vote:
+            return
+        assert lobby_id is not None
+        await self.broadcast(
+            lobby_id,
+            {
+                "type": "rematch_vote_update",
+                "voted_player_ids": voted_ids,
+                "voter_id": voter_id,
+                "name": voter_name,
+            },
+        )
+        if all_voted:
+            await self._rematch_to_new_lobby(lobby_id)
+
     async def disconnect(self, player_id: str) -> None:
         lobby_id: str | None = None
         left_count = 0
@@ -972,6 +1072,7 @@ class LobbyManager:
                     gone = lobby.players.pop(player_id, None)
                     if gone:
                         left_name = gone.name
+                    lobby.rematch_pending.discard(player_id)
                     lobby.cook_finished.discard(player_id)
                     lobby.chat_last_sent.pop(player_id, None)
                     left_count = len(lobby.players)
@@ -1142,6 +1243,8 @@ class LobbyManager:
             await self.set_cook_duration(player_id, data.get("minutes"))
         elif t == "cook_finished":
             await self.player_cook_finished(player_id)
+        elif t == "rematch_vote":
+            await self.rematch_vote(player_id)
         elif t == "vote_cast":
             await self.cast_vote(player_id, str(data.get("target_player_id", "")))
         elif t == "slideshow_complete":

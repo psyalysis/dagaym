@@ -7,7 +7,9 @@ import { mountAuthCornerLeave } from "../authCorner.js";
 import { RANK_BASELINE_KEY, RANK_PENDING_KEY } from "../rankUi.js";
 import { showServerRestartingWait } from "../serverRestartOverlay.js";
 import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
+import { notifyRematchWant } from "../mpPresenceToast.js";
 import { playSfxMinor } from "../sfx.js";
+import { supporterDisplayNameInnerHtml } from "../supporters.js";
 
 function getWaveSurfer() {
   const g = globalThis;
@@ -65,6 +67,7 @@ export function mountResultsScreen(root, ctx) {
   const playerId = ctx.playerId ? String(ctx.playerId) : "";
   const apiBase = getApiBase();
   const noWinnerTwoPlayers = r.no_winner_two_players === true;
+  const participants = Array.isArray(r.participants) ? r.participants : [];
 
   /** @type {Map<string, number>} */
   const voteByPlayerId = new Map(
@@ -82,12 +85,17 @@ export function mountResultsScreen(root, ctx) {
     });
   });
 
+  const winnerNameHtml =
+    winners.length > 0
+      ? winners
+          .map((w) => supporterDisplayNameInnerHtml(w))
+          .join('<span class="results-winner-sep" aria-hidden="true"> · </span>')
+      : "";
+
   const winnerBlock = noWinnerTwoPlayers
     ? `<p class="results-no-winner-2p">No Winner - Only 2 Players!</p>`
     : winners.length > 0
-      ? `<div class="results-winner">WINNER<br/><span class="results-winner-name">${escapeHtml(
-          winners.join(" · "),
-        )}</span></div>`
+      ? `<div class="results-winner">WINNER<br/><span class="results-winner-name">${winnerNameHtml}</span></div>`
       : `<p class="arcade-hint">No winner this round.</p>`;
 
   const beatsSection =
@@ -101,14 +109,64 @@ export function mountResultsScreen(root, ctx) {
         ? `<p class="arcade-hint results-beats-miss">Sign in required to replay beats.</p>`
         : "";
 
+  const rematchSection =
+    participants.length > 0 && wsSock instanceof WebSocket
+      ? `
+      <section class="results-rematch" aria-label="Rematch vote">
+        <p class="arcade-hint results-rematch-title">Rematch — all players must agree</p>
+        <ul class="results-rematch-list" id="results-rematch-list"></ul>
+        <button type="button" class="arcade-btn arcade-btn-secondary" id="results-rematch-btn">Rematch</button>
+      </section>
+    `
+      : "";
+
   root.innerHTML = `
     <div class="screen results arcade-panel">
       <h2 class="arcade-heading">RESULTS</h2>
       ${winnerBlock}
       ${beatsSection}
+      ${rematchSection}
       <button type="button" class="arcade-btn arcade-btn-primary" id="results-home">Main menu</button>
     </div>
   `;
+
+  /** @type {Set<string>} */
+  const rematchVoted = new Set();
+  let preserveWs = false;
+
+  const rematchListEl = root.querySelector("#results-rematch-list");
+  if (rematchListEl && participants.length > 0) {
+    for (const row of participants) {
+      const pid = String(row.player_id ?? "");
+      const name = String(row.name ?? pid);
+      const li = document.createElement("li");
+      li.className = "results-rematch-row";
+      li.dataset.playerId = pid;
+      const tick = document.createElement("span");
+      tick.className = "results-rematch-tick";
+      tick.setAttribute("aria-hidden", "true");
+      const nm = document.createElement("span");
+      nm.className = "results-rematch-name";
+      nm.innerHTML = supporterDisplayNameInnerHtml(name);
+      li.append(tick, nm);
+      rematchListEl.appendChild(li);
+    }
+  }
+
+  const paintRematchTicks = () => {
+    if (!rematchListEl) return;
+    rematchListEl.querySelectorAll(".results-rematch-row").forEach((row) => {
+      const pid = row.dataset.playerId || "";
+      const tick = row.querySelector(".results-rematch-tick");
+      if (tick) tick.textContent = rematchVoted.has(pid) ? "✓" : "";
+    });
+    const btn = root.querySelector("#results-rematch-btn");
+    if (btn instanceof HTMLButtonElement && playerId) {
+      btn.disabled = rematchVoted.has(playerId);
+    }
+  };
+
+  paintRematchTicks();
 
   /** @type {{ destroy: () => void }[]} */
   const waveCleanups = [];
@@ -152,7 +210,7 @@ export function mountResultsScreen(root, ctx) {
       head.className = "card-head results-beat-card-head";
       const title = document.createElement("h2");
       title.className = "card-title";
-      title.textContent = name;
+      title.innerHTML = supporterDisplayNameInnerHtml(name);
       const voteEl = document.createElement("span");
       voteEl.className = "results-beat-vote-count";
       voteEl.setAttribute("aria-label", `${votes} votes`);
@@ -226,15 +284,43 @@ export function mountResultsScreen(root, ctx) {
         return;
       }
       ingestMpChatMessage(m);
+      notifyRematchWant(m, playerId);
+      if (m.type === "rematch_vote_update" && Array.isArray(m.voted_player_ids)) {
+        rematchVoted.clear();
+        for (const id of m.voted_player_ids) rematchVoted.add(String(id));
+        paintRematchTicks();
+      }
+      if (m.type === "lobby_update" && m.lobby && m.lobby.state === "lobby") {
+        preserveWs = true;
+        import("./lobby.js").then((mod) => {
+          ctx.navigate(mod.mountLobbyScreen, {
+            mpWs: wsSock,
+            playerId,
+            lobby: m.lobby,
+          });
+        });
+        return;
+      }
       if (m.type === "error") {
         mpChatHandleErrorPayload(m);
       }
     };
     wsSock.onclose = () => {
-      if (teardownClose) return;
+      if (teardownClose || preserveWs) return;
       showServerRestartingWait();
     };
   }
+
+  root.querySelector("#results-rematch-btn")?.addEventListener("click", () => {
+    if (!(wsSock instanceof WebSocket) || wsSock.readyState !== WebSocket.OPEN) return;
+    if (playerId && rematchVoted.has(playerId)) return;
+    playSfxMinor();
+    try {
+      wsSock.send(JSON.stringify({ type: "rematch_vote" }));
+    } catch {
+      /* ignore */
+    }
+  });
 
   root.querySelector("#results-home")?.addEventListener("click", async () => {
     playSfxMinor();
@@ -272,11 +358,13 @@ export function mountResultsScreen(root, ctx) {
     objectUrls.forEach((u) => URL.revokeObjectURL(u));
     objectUrls.length = 0;
     root.innerHTML = "";
-    teardownClose = true;
-    try {
-      wsSock?.close();
-    } catch {
-      /* ignore */
+    if (!preserveWs) {
+      teardownClose = true;
+      try {
+        wsSock?.close();
+      } catch {
+        /* ignore */
+      }
     }
   };
 }

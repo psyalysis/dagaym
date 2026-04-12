@@ -8,14 +8,7 @@ import { mountModeSelectScreen } from "./modeSelect.js";
 import { mountJoinCodeScreen } from "./joinCode.js";
 import { mountServerBrowserScreen } from "./serverBrowser.js";
 import { mountSpiceSelectScreen } from "./spiceSelect.js";
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import { supporterDisplayNameInnerHtml } from "../supporters.js";
 
 export function mountMultiplayerHubScreen(root, ctx) {
   if (!isLoggedIn()) {
@@ -41,7 +34,7 @@ export function mountMultiplayerHubScreen(root, ctx) {
     }
 
     const displayName = ctx.username || getUsername() || "Player";
-    const safeName = escapeHtml(displayName);
+    const nameHtml = supporterDisplayNameInnerHtml(displayName);
 
     root.innerHTML = `
     <div class="screen mp-hub arcade-panel screen--vert-center">
@@ -51,7 +44,7 @@ export function mountMultiplayerHubScreen(root, ctx) {
         <span class="screen-topbar-spacer" aria-hidden="true"></span>
       </div>
       <div class="mp-hub-body">
-        <p class="arcade-hint">Playing as <strong>${safeName}</strong></p>
+        <p class="arcade-hint">Playing as <strong>${nameHtml}</strong></p>
         <div class="mp-hub-actions">
           <button type="button" class="arcade-btn arcade-btn-primary" id="mp-create">Create game</button>
           <button type="button" class="arcade-btn arcade-btn-primary" id="mp-join-code">Join game</button>

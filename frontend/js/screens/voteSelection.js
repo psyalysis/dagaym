@@ -11,6 +11,7 @@ import {
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { supporterDisplayNameInnerHtml } from "../supporters.js";
 import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
 import { playSfxMajor } from "../sfx.js";
 import { mountResultsScreen } from "./results.js";
@@ -159,7 +160,7 @@ export function mountVoteSelectionScreen(root, ctx) {
       head.className = "card-head";
       const title = document.createElement("h2");
       title.className = "card-title";
-      title.textContent = name;
+      title.innerHTML = supporterDisplayNameInnerHtml(name);
       head.appendChild(title);
 
       const waveWrap = document.createElement("div");

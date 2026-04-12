@@ -2,6 +2,7 @@
  * Multiplayer session chat: shared log + fixed composer (ASCII text + quick emoji).
  */
 import { escapeHtml } from "./rankUi.js";
+import { supporterDisplayNameInnerHtml } from "./supporters.js";
 import { playSfxMinor } from "./sfx.js";
 
 const BUFFER_MAX = 50;
@@ -104,7 +105,7 @@ function renderLogEl(logEl) {
   if (!logEl) return;
   const lines = sessionLog
     .map((row) => {
-      const who = escapeHtml(row.name);
+      const who = supporterDisplayNameInnerHtml(row.name);
       if (row.text != null) {
         return `<div class="mp-chat-line"><span class="mp-chat-who">${who}</span><span class="mp-chat-text">${escapeHtml(row.text)}</span></div>`;
       }

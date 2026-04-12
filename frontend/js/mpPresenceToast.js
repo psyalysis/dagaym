@@ -2,6 +2,7 @@
  * Multiplayer player join/leave — top-center toasts, slide from top.
  */
 import { playSfxPlayerJoin, playSfxPlayerLeave, playSfxSoloMatchAlarm } from "./sfx.js";
+import { supporterPlainPrefix } from "./supporters.js";
 
 const HOST_ID = "mp-presence-toast-host";
 const VISIBLE_MS = 3200;
@@ -25,7 +26,9 @@ function show(kind, label) {
   card.className =
     kind === "join"
       ? "mp-presence-toast mp-presence-toast--join"
-      : "mp-presence-toast mp-presence-toast--leave";
+      : kind === "leave"
+        ? "mp-presence-toast mp-presence-toast--leave"
+        : "mp-presence-toast mp-presence-toast--rematch";
   card.setAttribute("role", "status");
   const text = document.createElement("span");
   text.className = "mp-presence-toast-text";
@@ -51,7 +54,7 @@ export function notifyMpPlayerJoin(m, selfId) {
   const name = String(m.player.name ?? "").trim() || "Player";
   if (!id || id === selfId) return;
   playSfxPlayerJoin();
-  show("join", `${name} joined`);
+  show("join", `${supporterPlainPrefix(name)}${name} joined`);
 }
 
 /**
@@ -64,7 +67,19 @@ export function notifyMpPlayerLeave(m, selfId) {
   if (!id || id === selfId) return;
   const name = String(m.name ?? "").trim() || "Player";
   playSfxPlayerLeave();
-  show("leave", `${name} left`);
+  show("leave", `${supporterPlainPrefix(name)}${name} left`);
+}
+
+/**
+ * @param {unknown} m — WS message
+ * @param {string} selfId
+ */
+export function notifyRematchWant(m, selfId) {
+  if (!m || m.type !== "rematch_vote_update") return;
+  const id = String(m.voter_id ?? "");
+  const name = String(m.name ?? "").trim() || "Player";
+  if (!id || id === selfId) return;
+  show("rematch", `${supporterPlainPrefix(name)}${name} wants to rematch!`);
 }
 
 /**

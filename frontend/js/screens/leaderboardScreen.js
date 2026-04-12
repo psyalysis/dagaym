@@ -3,6 +3,7 @@
  */
 import { fetchLeaderboard, isLoggedIn } from "../authApi.js";
 import { escapeHtml, rankBadgeHtml } from "../rankUi.js";
+import { supporterDisplayNameInnerHtml } from "../supporters.js";
 import { mountAuthCornerGuest, mountAuthCornerMenu } from "../authCorner.js";
 import { playSfxMinor } from "../sfx.js";
 import { mountModeSelectScreen } from "./modeSelect.js";
@@ -50,7 +51,7 @@ export function mountLeaderboardScreen(root, ctx) {
           (r, i) => `
         <div class="lb-row">
           <span>${i + 1}</span>
-          <span class="lb-player">${escapeHtml(r.username)}${rankBadgeHtml(r.rank)}</span>
+          <span class="lb-player">${supporterDisplayNameInnerHtml(r.username)}${rankBadgeHtml(r.rank)}</span>
           <span>${escapeHtml(String(r.wins))}</span>
         </div>`,
         )
