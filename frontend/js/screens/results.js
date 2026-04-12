@@ -1,10 +1,11 @@
 /**
- * ResultsScreen — winner, leaderboard, replay grid with waveforms.
+ * ResultsScreen — winner, beat cards sorted by votes (grid of waveforms).
  */
 import { authHeadersMultipart, fetchMe } from "../authApi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { RANK_BASELINE_KEY, RANK_PENDING_KEY } from "../rankUi.js";
+import { showServerRestartingWait } from "../serverRestartOverlay.js";
 import { playSfxMinor } from "../sfx.js";
 
 function getWaveSurfer() {
@@ -54,38 +55,45 @@ export function mountResultsScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
 
   const wsSock = ctx.mpWs;
+  /** True while we close the socket on purpose (avoid restart overlay). */
+  let teardownClose = false;
   const r = ctx.results || {};
   const winners = r.winners || [];
   const board = r.leaderboard || [];
   const beats = Array.isArray(r.beats) ? r.beats : [];
   const playerId = ctx.playerId ? String(ctx.playerId) : "";
   const apiBase = getApiBase();
+  const noWinnerTwoPlayers = r.no_winner_two_players === true;
 
-  const winnerBlock =
-    winners.length > 0
+  /** @type {Map<string, number>} */
+  const voteByPlayerId = new Map(
+    board.map((row) => [String(row.player_id ?? ""), Number(row.votes) || 0]),
+  );
+
+  const beatsByVotes = [...beats].sort((a, b) => {
+    const pa = String(a.player_id ?? "");
+    const pb = String(b.player_id ?? "");
+    const va = voteByPlayerId.get(pa) ?? 0;
+    const vb = voteByPlayerId.get(pb) ?? 0;
+    if (vb !== va) return vb - va;
+    return String(a.name ?? "").localeCompare(String(b.name ?? ""), undefined, {
+      sensitivity: "base",
+    });
+  });
+
+  const winnerBlock = noWinnerTwoPlayers
+    ? `<p class="results-no-winner-2p">No Winner - Only 2 Players!</p>`
+    : winners.length > 0
       ? `<div class="results-winner">WINNER<br/><span class="results-winner-name">${escapeHtml(
           winners.join(" · "),
         )}</span></div>`
       : `<p class="arcade-hint">No winner this round.</p>`;
 
-  const rows = board
-    .map(
-      (row, i) => `
-    <div class="results-row">
-      <span class="results-rank">${i + 1}.</span>
-      <span class="results-name">${escapeHtml(row.name)}</span>
-      <span class="results-votes">${row.votes}</span>
-    </div>
-  `,
-    )
-    .join("");
-
   const beatsSection =
     beats.length > 0 && playerId
       ? `
-      <section class="results-beats-section" aria-label="Replay beats">
-        <p class="results-beats-hint">Beats — hover or click waveform to replay</p>
-        <div class="grid results-beat-grid" id="results-beat-grid"></div>
+      <section class="results-beats-section" aria-label="Results beats">
+        <div class="results-beat-grid" id="results-beat-grid"></div>
       </section>
     `
       : beats.length > 0
@@ -96,7 +104,6 @@ export function mountResultsScreen(root, ctx) {
     <div class="screen results arcade-panel">
       <h2 class="arcade-heading">RESULTS</h2>
       ${winnerBlock}
-      <div class="results-board">${rows}</div>
       ${beatsSection}
       <button type="button" class="arcade-btn arcade-btn-primary" id="results-home">Main menu</button>
     </div>
@@ -126,10 +133,11 @@ export function mountResultsScreen(root, ctx) {
       if (pending <= 0) revealGrid();
     };
 
-    beats.forEach((b, i) => {
+    beatsByVotes.forEach((b, i) => {
       const pid = String(b.player_id ?? "");
       const name = String(b.name ?? pid);
       const path = String(b.url ?? "");
+      const votes = voteByPlayerId.get(pid) ?? 0;
       if (!path) {
         oneDone();
         return;
@@ -140,12 +148,16 @@ export function mountResultsScreen(root, ctx) {
       card.style.setProperty("--stagger", String(i));
 
       const head = document.createElement("div");
-      head.className = "card-head";
+      head.className = "card-head results-beat-card-head";
       const title = document.createElement("h2");
       title.className = "card-title";
       title.textContent = name;
+      const voteEl = document.createElement("span");
+      voteEl.className = "results-beat-vote-count";
+      voteEl.setAttribute("aria-label", `${votes} votes`);
+      voteEl.textContent = String(votes);
 
-      head.appendChild(title);
+      head.append(title, voteEl);
 
       const waveWrap = document.createElement("div");
       waveWrap.className = "waveform-wrap empty";
@@ -201,10 +213,18 @@ export function mountResultsScreen(root, ctx) {
     });
   }
 
+  if (wsSock instanceof WebSocket) {
+    wsSock.onclose = () => {
+      if (teardownClose) return;
+      showServerRestartingWait();
+    };
+  }
+
   root.querySelector("#results-home")?.addEventListener("click", async () => {
     playSfxMinor();
+    teardownClose = true;
     try {
-      wsSock.close();
+      wsSock?.close();
     } catch {
       /* ignore */
     }
@@ -235,8 +255,9 @@ export function mountResultsScreen(root, ctx) {
     objectUrls.forEach((u) => URL.revokeObjectURL(u));
     objectUrls.length = 0;
     root.innerHTML = "";
+    teardownClose = true;
     try {
-      wsSock.close();
+      wsSock?.close();
     } catch {
       /* ignore */
     }

@@ -40,3 +40,16 @@ export function playSfxBeatBattle() {
 export function playSfxUploadAlarm() {
   playFile("Alarm.wav", 0.88);
 }
+
+/** Everyone else left mid-match — same asset as upload alarm. */
+export function playSfxSoloMatchAlarm() {
+  playFile("Alarm.wav", 0.88);
+}
+
+export function playSfxPlayerJoin() {
+  playFile("PlayerJoin.wav", 0.88);
+}
+
+export function playSfxPlayerLeave() {
+  playFile("PlayerLeave.wav", 0.88);
+}

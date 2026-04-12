@@ -5,6 +5,13 @@ import { authHeaders, fetchMe } from "../authApi.js";
 import { RANK_BASELINE_KEY } from "../rankUi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { notifyMpServerError, showAppError } from "../errorToast.js";
+import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import {
+  navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerJoin,
+  notifyMpPlayerLeave,
+} from "../mpPresenceToast.js";
 import { playSfxMinor } from "../sfx.js";
 import {
   audioBufferToWavBase64,
@@ -14,6 +21,7 @@ import {
   SYNTH_KEYS,
 } from "../kitFromSeed.js";
 import { runSynthReveal } from "../synthReveal.js";
+import { mountKitLayoutShell } from "../kitGridLayout.js";
 import { mountUploadScreen } from "./upload.js";
 
 const SOUND_KEYS = [
@@ -218,7 +226,7 @@ function setupCookUI(root, ctx, sounds) {
         <button type="button" class="arcade-btn arcade-btn-primary" id="mp-finished">Finished</button>
       </div>
       <p class="arcade-hint cook-finished-hint hidden" id="mp-finished-hint" aria-live="polite"></p>
-      <div id="mp-sound-grid" class="grid mp-grid" aria-label="Match kit"></div>
+      <div id="mp-sound-grid" class="kit-layout mp-grid" aria-label="Match kit"></div>
     </div>
   `;
 
@@ -263,9 +271,10 @@ function setupCookUI(root, ctx, sounds) {
     container.innerHTML = "";
     container.classList.remove("empty");
     const WaveSurfer = getWaveSurfer();
+    const waveH = Math.max(68, Math.floor(container.clientHeight) || 68);
     const wsur = WaveSurfer.create({
       container,
-      height: 72,
+      height: waveH,
       waveColor: "#b01010",
       progressColor: "#ffffff",
       cursorWidth: 0,
@@ -275,7 +284,7 @@ function setupCookUI(root, ctx, sounds) {
     waveSurfers.set(key, wsur);
   };
 
-  SOUND_KEYS.forEach((key) => {
+  const appendCookCard = (key) => {
     const card = document.createElement("article");
     card.className = "card";
     const head = document.createElement("div");
@@ -299,8 +308,10 @@ function setupCookUI(root, ctx, sounds) {
     audio.preload = "auto";
     bindWaveformPlayback(key, waveWrap, audio);
     card.append(head, waveWrap, audio);
-    grid?.appendChild(card);
-  });
+    return card;
+  };
+
+  if (grid) mountKitLayoutShell(grid, { synthKeys: SYNTH_KEYS, appendCard: appendCookCard });
 
   clickFullPlayback.clear();
   SOUND_KEYS.forEach((key) => {
@@ -379,6 +390,16 @@ function setupCookUI(root, ctx, sounds) {
     } catch {
       return;
     }
+    if (m.type === "lobby_dissolved") {
+      preserveWs = true;
+      void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
+      return;
+    }
+    notifyMpPlayerJoin(m, playerId);
+    notifyMpPlayerLeave(m, playerId);
+    if (m.type === "error") {
+      notifyMpServerError(m);
+    }
     if (m.type === "timer_update" && m.phase === "cooking") {
       const rs = m.remaining_s;
       if (rs != null && Number.isFinite(Number(rs))) {
@@ -408,6 +429,9 @@ function setupCookUI(root, ctx, sounds) {
 
   const prevOnClose = ws.onclose;
   ws.onclose = () => {
+    if (!preserveWs) {
+      showServerRestartingWait();
+    }
     const hint = root.querySelector("#cook-connection-hint");
     if (hint) hint.classList.remove("hidden");
     if (typeof prevOnClose === "function") {
@@ -466,6 +490,10 @@ export function mountCookScreen(root, ctx) {
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : "Unknown error";
+          showAppError({
+            message: `Could not load kit: ${msg}`,
+            errorCode: "KIT_CLIENT",
+          });
           root.innerHTML = `
           <div class="screen cook arcade-panel screen--vert-center">
             <p class="arcade-error">Could not load kit.</p>

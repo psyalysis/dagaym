@@ -122,21 +122,34 @@ def get_current_user(
     return user
 
 
-def validate_ws_token(token: str | None) -> tuple[int, str] | None:
-    """Validate JWT and that the user still exists (for WebSocket connect)."""
+def try_validate_ws_token(token: str | None) -> tuple[tuple[int, str], None] | tuple[None, str]:
+    """
+    Validate JWT and that the user still exists (for WebSocket connect).
+    On failure returns ``(None, reason)`` with a stable reason code for logging — never log the token.
+    """
     if not token or not str(token).strip():
-        return None
+        return None, "missing_token"
     try:
         payload = decode_token(str(token).strip())
         uid = int(payload["sub"])
         un = str(payload["username"])
     except (JWTError, KeyError, ValueError, TypeError):
-        return None
+        return None, "jwt_invalid"
     db = SessionLocal()
     try:
         user = db.get(User, uid)
-        if user is None or user.username != un:
-            return None
-        return uid, user.username
+        if user is None:
+            return None, "user_not_found"
+        if user.username != un:
+            return None, "username_mismatch"
+        return (uid, user.username), None
     finally:
         db.close()
+
+
+def validate_ws_token(token: str | None) -> tuple[int, str] | None:
+    """Validate JWT and that the user still exists (for WebSocket connect)."""
+    ok, reason = try_validate_ws_token(token)
+    if reason is not None:
+        return None
+    return ok

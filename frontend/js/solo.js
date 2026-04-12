@@ -10,6 +10,7 @@ import {
   loadSynthAudioBuffersParallel,
   SYNTH_KEYS,
 } from "./kitFromSeed.js";
+import { mountKitLayoutShell } from "./kitGridLayout.js";
 import { playSfxMajor, playSfxMinor, playSfxOn } from "./sfx.js";
 import { runSynthReveal } from "./synthReveal.js";
 
@@ -62,7 +63,6 @@ export function mountSoloScreen(root, ctx) {
   const audioSrcByKey = new Map();
   const clickFullPlayback = new Map();
   let lastSoundsB64 = null;
-  let kitGridBuilt = false;
   /** @type {HTMLElement | null} */
   let activeKitOverlay = null;
   /** @type {AudioContext | null} */
@@ -116,7 +116,7 @@ export function mountSoloScreen(root, ctx) {
         </div>
       </section>
       <p id="status" class="status arcade-status" aria-live="polite"></p>
-      <main id="sound-grid" class="grid hidden" aria-label="Generated kit"></main>
+      <main id="sound-grid" class="kit-layout mp-grid hidden" aria-label="Generated kit"></main>
     </div>
   `;
 
@@ -139,43 +139,43 @@ export function mountSoloScreen(root, ctx) {
     ctx.navigate(m.mountModeSelectScreen);
   });
 
+  function buildKitCard(key) {
+    const card = document.createElement("article");
+    card.className = "card";
+    card.dataset.sound = key;
+
+    const head = document.createElement("div");
+    head.className = "card-head";
+    const title = document.createElement("h2");
+    title.className = "card-title";
+    title.textContent = labelForKey(key);
+    const dl = document.createElement("button");
+    dl.type = "button";
+    dl.className = "card-download";
+    dl.dataset.soundKey = key;
+    dl.setAttribute("aria-label", `Download ${key}`);
+    dl.textContent = "↓";
+    head.append(title, dl);
+
+    const waveWrap = document.createElement("div");
+    waveWrap.className = "waveform-wrap empty";
+    waveWrap.id = `wave-${key}`;
+    waveWrap.textContent = "—";
+
+    const audio = document.createElement("audio");
+    audio.id = `audio-${key}`;
+    audio.preload = "auto";
+
+    bindWaveformPlayback(key, waveWrap, audio);
+
+    card.append(head, waveWrap, audio);
+    return card;
+  }
+
   function buildGrid() {
     const grid = root.querySelector("#sound-grid");
     if (!grid) return;
-    grid.innerHTML = "";
-    SOUND_KEYS.forEach((key) => {
-      const card = document.createElement("article");
-      card.className = "card";
-      card.dataset.sound = key;
-
-      const head = document.createElement("div");
-      head.className = "card-head";
-      const title = document.createElement("h2");
-      title.className = "card-title";
-      title.textContent = labelForKey(key);
-      const dl = document.createElement("button");
-      dl.type = "button";
-      dl.className = "card-download";
-      dl.dataset.soundKey = key;
-      dl.setAttribute("aria-label", `Download ${key}`);
-      dl.textContent = "↓";
-      head.append(title, dl);
-
-      const waveWrap = document.createElement("div");
-      waveWrap.className = "waveform-wrap empty";
-      waveWrap.id = `wave-${key}`;
-      waveWrap.textContent = "—";
-
-      const audio = document.createElement("audio");
-      audio.id = `audio-${key}`;
-      audio.preload = "auto";
-
-      bindWaveformPlayback(key, waveWrap, audio);
-
-      card.append(head, waveWrap, audio);
-      grid.appendChild(card);
-    });
-    kitGridBuilt = true;
+    mountKitLayoutShell(grid, { synthKeys: SYNTH_KEYS, appendCard: buildKitCard });
   }
 
   function bindWaveformPlayback(key, waveWrap, audio) {
@@ -217,9 +217,10 @@ export function mountSoloScreen(root, ctx) {
     container.innerHTML = "";
     container.classList.remove("empty");
     const WaveSurfer = getWaveSurfer();
+    const waveH = Math.max(68, Math.floor(container.clientHeight) || 68);
     const wsur = WaveSurfer.create({
       container,
-      height: 72,
+      height: waveH,
       waveColor: "#b01010",
       progressColor: "#ffffff",
       cursorWidth: 0,
@@ -388,7 +389,7 @@ export function mountSoloScreen(root, ctx) {
       activeKitAc = null;
 
       lastSoundsB64 = sounds;
-      if (!kitGridBuilt) buildGrid();
+      buildGrid();
       setKitUiVisible(true);
       attachSounds(sounds);
     } catch (e) {

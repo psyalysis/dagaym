@@ -4,10 +4,29 @@
 import { getApiBase } from "./apiOrigin.js";
 import { clearAuthCorner } from "./authCorner.js";
 import { getUsername, isLoggedIn, validateSession } from "./authApi.js";
+import { showAppError } from "./errorToast.js";
 import { playSfxBeatBattle } from "./sfx.js";
 import { mountModeSelectScreen } from "./screens/modeSelect.js";
 
 function boot() {
+  window.addEventListener("error", (ev) => {
+    const fn = ev.filename || "";
+    if (!fn || fn.includes("extension://") || fn.includes("moz-extension://")) return;
+    if (!fn.includes("/js/") && !fn.endsWith("main.js")) return;
+    showAppError({
+      message: ev.message || "A script error occurred.",
+      errorCode: ev.lineno ? `SCRIPT_L${ev.lineno}` : "SCRIPT",
+    });
+  });
+  window.addEventListener("unhandledrejection", (ev) => {
+    const r = ev.reason;
+    const msg = r instanceof Error ? r.message : String(r);
+    showAppError({
+      message: msg || "Unhandled promise rejection.",
+      errorCode: "UNHANDLED_REJECTION",
+    });
+  });
+
   playSfxBeatBattle();
 
   const root = document.getElementById("app-root");

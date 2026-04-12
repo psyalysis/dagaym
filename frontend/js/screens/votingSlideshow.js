@@ -3,6 +3,13 @@
  */
 import { authHeadersMultipart } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { notifyMpServerError } from "../errorToast.js";
+import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import {
+  navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerJoin,
+  notifyMpPlayerLeave,
+} from "../mpPresenceToast.js";
 import { playSfxMinor } from "../sfx.js";
 import { mountVoteSelectionScreen } from "./voteSelection.js";
 
@@ -25,6 +32,9 @@ const BEAT_REACTION_ARIA = {
 };
 
 const CLIP_MAX_SEC = 45;
+
+/** Min ms between beat reaction sends (client-side; reduces spam). */
+const BEAT_REACTION_COOLDOWN_MS = 3000;
 
 const BEAT_TOAST_VISIBLE_MS = 1000;
 const BEAT_TOAST_FADE_MS = 200;
@@ -114,6 +124,8 @@ export function mountVotingSlideshowScreen(root, ctx) {
   const beats = ctx.beats || [];
   const votesUnlockAt = ctx.votesUnlockAt;
   let preserveWs = false;
+  /** True while unmount closes the socket on purpose (avoid restart overlay). */
+  let teardownClose = false;
   let activeWsur = null;
   let idx = 0;
   /** @type {string | null} */
@@ -143,6 +155,21 @@ export function mountVotingSlideshowScreen(root, ctx) {
   const waveEl = root.querySelector("#slide-wave");
   const progEl = root.querySelector("#slide-progress");
   const reactionsEl = root.querySelector("#slideshow-reactions");
+
+  /** @type {number} */
+  let beatReactionCooldownUntil = 0;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let beatReactionCooldownTimer = null;
+
+  /** @param {boolean} on */
+  const setBeatReactionButtonsCooldown = (on) => {
+    const wrap = root.querySelector(".slideshow-reaction-btns");
+    if (!wrap) return;
+    wrap.classList.toggle("slideshow-reaction-btns--cooldown", on);
+    wrap.querySelectorAll("button").forEach((b) => {
+      if (b instanceof HTMLButtonElement) b.disabled = on;
+    });
+  };
 
   /** @type {Set<ReturnType<typeof setTimeout>>} */
   const beatToastTimeouts = new Set();
@@ -364,6 +391,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     const origin = e.target instanceof Element ? e.target : null;
     const btn = origin?.closest?.("[data-beat-reaction]");
     if (!(btn instanceof HTMLButtonElement) || !reactionsEl || reactionsEl.hidden) return;
+    if (Date.now() < beatReactionCooldownUntil) return;
     const target = currentBeatOwnerId;
     const reaction = btn.dataset.beatReaction;
     if (!target || !reaction) return;
@@ -376,6 +404,14 @@ export function mountVotingSlideshowScreen(root, ctx) {
           reaction,
         }),
       );
+      beatReactionCooldownUntil = Date.now() + BEAT_REACTION_COOLDOWN_MS;
+      setBeatReactionButtonsCooldown(true);
+      if (beatReactionCooldownTimer != null) clearTimeout(beatReactionCooldownTimer);
+      beatReactionCooldownTimer = setTimeout(() => {
+        beatReactionCooldownTimer = null;
+        beatReactionCooldownUntil = 0;
+        setBeatReactionButtonsCooldown(false);
+      }, BEAT_REACTION_COOLDOWN_MS);
     } catch {
       /* ignore */
     }
@@ -388,6 +424,16 @@ export function mountVotingSlideshowScreen(root, ctx) {
       m = JSON.parse(ev.data);
     } catch {
       return;
+    }
+    if (m.type === "lobby_dissolved") {
+      preserveWs = true;
+      void navigateToMenuAfterLobbyDissolved(ctx, wsSock, m);
+      return;
+    }
+    notifyMpPlayerJoin(m, playerId);
+    notifyMpPlayerLeave(m, playerId);
+    if (m.type === "error") {
+      notifyMpServerError(m);
     }
     if (m.type === "beat_reaction" && m.from_name && m.reaction && m.target_player_id) {
       if (m.target_player_id === currentBeatOwnerId) {
@@ -405,6 +451,10 @@ export function mountVotingSlideshowScreen(root, ctx) {
       });
     }
   };
+  wsSock.onclose = () => {
+    if (preserveWs || teardownClose) return;
+    showServerRestartingWait();
+  };
   wsSock.onmessage = onSocket;
 
   if (beats.length === 0) {
@@ -414,6 +464,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
   }
 
   return () => {
+    if (beatReactionCooldownTimer != null) clearTimeout(beatReactionCooldownTimer);
     clearBeatToastTimers();
     removeBeatToastHost();
     reactionsEl?.removeEventListener("click", reactionClick);
@@ -428,6 +479,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
         /* ignore */
       }
     }
+    teardownClose = true;
     root.innerHTML = "";
     if (!preserveWs) {
       try {

@@ -188,6 +188,25 @@ class LobbyManager:
             except Exception:
                 pass
 
+    async def send_player_error(
+        self,
+        player_id: str,
+        message: str,
+        *,
+        error_code: str | None = None,
+    ) -> str:
+        """Send ``type: error`` with a short ``error_ref`` for user bug reports."""
+        ref = secrets.token_hex(4).upper()
+        payload: dict[str, Any] = {
+            "type": "error",
+            "message": message,
+            "error_ref": ref,
+        }
+        if error_code is not None:
+            payload["error_code"] = error_code
+        await self.send_to(player_id, payload)
+        return ref
+
     @staticmethod
     def _normalize_lobby_code(code: str) -> str:
         """Strip spaces, hyphens, underscores; uppercase (lobby ids are hex)."""
@@ -218,21 +237,21 @@ class LobbyManager:
     ) -> None:
         """Create a new lobby; host is the first player."""
         if not spices:
-            await self.send_to(
+            await self.send_player_error(
                 player_id,
-                {"type": "error", "message": "Select at least one heat level (0.25, 0.5, 0.85)."},
+                "Select at least one heat level (0.25, 0.5, 0.85).",
             )
             return
         sess = self._session_user(player_id)
         if sess is None:
-            await self.send_to(player_id, {"type": "error", "message": "Not authenticated."})
+            await self.send_player_error(player_id, "Not authenticated.")
             return
         user_id, display_name = sess
         wins = await asyncio.to_thread(_user_wins_sync, user_id)
         host_spice = sorted(spices)[0]
         async with self._lock:
             if player_id in self.player_lobby:
-                await self.send_to(player_id, {"type": "error", "message": "Already in a lobby."})
+                await self.send_player_error(player_id, "Already in a lobby.")
                 return
             lobby = Lobby(
                 id=self._new_lobby_id(),
@@ -251,38 +270,35 @@ class LobbyManager:
         """Join by lobby id / code (works for public and private)."""
         sess = self._session_user(player_id)
         if sess is None:
-            await self.send_to(player_id, {"type": "error", "message": "Not authenticated."})
+            await self.send_player_error(player_id, "Not authenticated.")
             return
         user_id, display_name = sess
         wins = await asyncio.to_thread(_user_wins_sync, user_id)
         async with self._lock:
             if player_id in self.player_lobby:
-                await self.send_to(player_id, {"type": "error", "message": "Already in a lobby."})
+                await self.send_player_error(player_id, "Already in a lobby.")
                 return
             key = self._resolve_lobby_key(code)
             if key is None:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {
-                        "type": "error",
-                        "message": "No lobby found for that code. Check the code and try again.",
-                    },
+                    "No lobby found for that code. Check the code and try again.",
                 )
                 return
             lobby = self.lobbies[key]
             if lobby.state != LobbyState.LOBBY:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "That match already started or ended."},
+                    "That match already started or ended.",
                 )
                 return
             if len(lobby.players) >= MAX_LOBBY_PLAYERS:
-                await self.send_to(player_id, {"type": "error", "message": "Lobby is full."})
+                await self.send_player_error(player_id, "Lobby is full.")
                 return
             if self._lobby_has_user_id(lobby, user_id):
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "You are already in this lobby."},
+                    "You are already in this lobby.",
                 )
                 return
             lobby.players[player_id] = Player(
@@ -296,44 +312,41 @@ class LobbyManager:
         """Join a listed public lobby from the browser (no code typed)."""
         sess = self._session_user(player_id)
         if sess is None:
-            await self.send_to(player_id, {"type": "error", "message": "Not authenticated."})
+            await self.send_player_error(player_id, "Not authenticated.")
             return
         user_id, display_name = sess
         wins = await asyncio.to_thread(_user_wins_sync, user_id)
         async with self._lock:
             if player_id in self.player_lobby:
-                await self.send_to(player_id, {"type": "error", "message": "Already in a lobby."})
+                await self.send_player_error(player_id, "Already in a lobby.")
                 return
             key = self._resolve_lobby_key(lobby_id)
             if key is None:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "That lobby is no longer available."},
+                    "That lobby is no longer available.",
                 )
                 return
             lobby = self.lobbies[key]
             if not lobby.is_public:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {
-                        "type": "error",
-                        "message": "That lobby is code-only. Enter its code on Join with code.",
-                    },
+                    "That lobby is code-only. Enter its code on Join with code.",
                 )
                 return
             if lobby.state != LobbyState.LOBBY:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "That match already started or ended."},
+                    "That match already started or ended.",
                 )
                 return
             if len(lobby.players) >= MAX_LOBBY_PLAYERS:
-                await self.send_to(player_id, {"type": "error", "message": "Lobby is full."})
+                await self.send_player_error(player_id, "Lobby is full.")
                 return
             if self._lobby_has_user_id(lobby, user_id):
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "You are already in this lobby."},
+                    "You are already in this lobby.",
                 )
                 return
             lobby.players[player_id] = Player(
@@ -386,25 +399,22 @@ class LobbyManager:
                 return
             lobby = self.lobbies.get(lobby_id)
             if not lobby or lobby.state != LobbyState.LOBBY:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "You can only change duration before the match starts."},
+                    "You can only change duration before the match starts.",
                 )
                 return
             host_id = next(iter(lobby.players)) if lobby.players else None
             if host_id != player_id:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "Only the host can set cook duration."},
+                    "Only the host can set cook duration.",
                 )
                 return
             if norm is None:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {
-                        "type": "error",
-                        "message": "Invalid duration. Use 5, 10, 15, 20, or 30 minutes.",
-                    },
+                    "Invalid duration. Use 5, 10, 15, 20, or 30 minutes.",
                 )
                 return
             lobby.cook_duration_min = norm
@@ -696,6 +706,11 @@ class LobbyManager:
                 mx = max(counts.values())
                 winners = [pid for pid, c in counts.items() if c == mx]
 
+            n_players = len(lobby.players)
+            no_winner_two_players = n_players == 2
+            if no_winner_two_players:
+                winners = []
+
             def name_for(pid: str) -> str:
                 pl = lobby.players.get(pid)
                 return pl.name if pl else pid
@@ -728,6 +743,7 @@ class LobbyManager:
                 "winner_ids": winners,
                 "leaderboard": leaderboard,
                 "beats": beats_out,
+                "no_winner_two_players": no_winner_two_players,
             },
         )
 
@@ -766,7 +782,7 @@ class LobbyManager:
     async def lobby_emoji(self, player_id: str, emoji_key: str) -> None:
         key = str(emoji_key).strip()
         if key not in LOBBY_EMOJI_KEYS:
-            await self.send_to(player_id, {"type": "error", "message": "Invalid emoji."})
+            await self.send_player_error(player_id, "Invalid emoji.")
             return
         async with self._lock:
             lobby_id = self.player_lobby.get(player_id)
@@ -774,9 +790,9 @@ class LobbyManager:
                 return
             lobby = self.lobbies.get(lobby_id)
             if not lobby or lobby.state != LobbyState.LOBBY:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "Emoji chat is only available before the match starts."},
+                    "Emoji chat is only available before the match starts.",
                 )
                 return
             pl = lobby.players.get(player_id)
@@ -796,11 +812,11 @@ class LobbyManager:
     async def beat_reaction(self, player_id: str, target_player_id: str, reaction: str) -> None:
         r = str(reaction).strip()
         if r not in BEAT_REACTION_KEYS:
-            await self.send_to(player_id, {"type": "error", "message": "Invalid reaction."})
+            await self.send_player_error(player_id, "Invalid reaction.")
             return
         tid = str(target_player_id).strip()
         if not tid:
-            await self.send_to(player_id, {"type": "error", "message": "Missing beat target."})
+            await self.send_player_error(player_id, "Missing beat target.")
             return
         async with self._lock:
             lobby_id = self.player_lobby.get(player_id)
@@ -808,13 +824,13 @@ class LobbyManager:
                 return
             lobby = self.lobbies.get(lobby_id)
             if not lobby or lobby.state != LobbyState.VOTING:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "Reactions are only available during the listening phase."},
+                    "Reactions are only available during the listening phase.",
                 )
                 return
             if player_id not in lobby.players or tid not in lobby.uploaded:
-                await self.send_to(player_id, {"type": "error", "message": "Invalid reaction target."})
+                await self.send_player_error(player_id, "Invalid reaction target.")
                 return
             if tid == player_id:
                 return
@@ -835,33 +851,33 @@ class LobbyManager:
         async with self._lock:
             lobby_id = self.player_lobby.get(player_id)
             if not lobby_id:
-                await self.send_to(player_id, {"type": "error", "message": "Not in a lobby."})
+                await self.send_player_error(player_id, "Not in a lobby.")
                 return
             lobby = self.lobbies.get(lobby_id)
             if not lobby or lobby.state != LobbyState.VOTING:
-                await self.send_to(player_id, {"type": "error", "message": "Voting is not open."})
+                await self.send_player_error(player_id, "Voting is not open.")
                 return
             if lobby.votes_unlock_at and time.time() < lobby.votes_unlock_at:
                 if player_id not in lobby.slideshow_completed:
-                    await self.send_to(
+                    await self.send_player_error(
                         player_id,
-                        {"type": "error", "message": "Votes unlock after the slideshow."},
+                        "Votes unlock after the slideshow.",
                     )
                     return
             if target_player_id == player_id:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "Cannot vote for yourself."},
+                    "Cannot vote for yourself.",
                 )
                 return
             if target_player_id not in lobby.uploaded:
-                await self.send_to(player_id, {"type": "error", "message": "Invalid vote target."})
+                await self.send_player_error(player_id, "Invalid vote target.")
                 return
             beat_owners = set(lobby.uploaded)
             if not any(b != player_id for b in beat_owners):
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "No valid vote target for you."},
+                    "No valid vote target for you.",
                 )
                 return
             lobby.votes[player_id] = target_player_id
@@ -892,6 +908,8 @@ class LobbyManager:
     async def disconnect(self, player_id: str) -> None:
         lobby_id: str | None = None
         left_count = 0
+        left_name = ""
+        state_after: LobbyState | None = None
         lobby: Lobby | None = None
         async with self._lock:
             lobby_id = self.player_lobby.pop(player_id, None)
@@ -899,25 +917,40 @@ class LobbyManager:
             if lobby_id:
                 lobby = self.lobbies.get(lobby_id)
                 if lobby:
-                    lobby.players.pop(player_id, None)
+                    gone = lobby.players.pop(player_id, None)
+                    if gone:
+                        left_name = gone.name
                     lobby.cook_finished.discard(player_id)
                     left_count = len(lobby.players)
+                    state_after = lobby.state
         self.pop_auth_session(player_id)
 
-        if not lobby_id or not lobby:
+        if not lobby_id or not lobby or state_after is None:
             return
 
         await self.broadcast(
             lobby_id,
-            {"type": "player_leave", "player_id": player_id},
+            {
+                "type": "player_leave",
+                "player_id": player_id,
+                "name": left_name,
+            },
         )
 
         if left_count == 0:
             await self._purge_lobby(lobby_id)
             return
 
-        if left_count < 2 and lobby.state == LobbyState.LOBBY:
+        if left_count < 2 and state_after == LobbyState.LOBBY:
             await self._dissolve_lobby(lobby_id)
+            return
+
+        if (
+            left_count == 1
+            and state_after != LobbyState.LOBBY
+            and state_after != LobbyState.RESULTS
+        ):
+            await self._end_match_only_player_left(lobby_id)
             return
 
         snap = None
@@ -941,6 +974,24 @@ class LobbyManager:
             await self.send_to(
                 pid,
                 {"type": "lobby_dissolved", "reason": "not_enough_players"},
+            )
+
+        await self._purge_lobby(lobby_id, remove_dir=True)
+
+    async def _end_match_only_player_left(self, lobby_id: str) -> None:
+        """Last remaining player mid-match: notify client and tear down lobby."""
+        async with self._lock:
+            lobby = self.lobbies.pop(lobby_id, None)
+            if not lobby:
+                return
+            pids = list(lobby.players.keys())
+            for pid in pids:
+                self.player_lobby.pop(pid, None)
+
+        for pid in pids:
+            await self.send_to(
+                pid,
+                {"type": "lobby_dissolved", "reason": "only_player_left"},
             )
 
         await self._purge_lobby(lobby_id, remove_dir=True)
@@ -1002,9 +1053,9 @@ class LobbyManager:
         if t == "create_lobby":
             spices = _normalize_player_spices(data)
             if spices is None:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "Invalid spices. Send spices: [0.25, 0.5, ...]."},
+                    "Invalid spices. Send spices: [0.25, 0.5, ...].",
                 )
                 return
             is_public = _coerce_bool(data.get("is_public"), default=True)
@@ -1018,9 +1069,9 @@ class LobbyManager:
             elif lid is not None and str(lid).strip() != "":
                 await self.join_lobby_public(player_id, name, str(lid))
             else:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {"type": "error", "message": "Send lobby_id (public list) or lobby_code."},
+                    "Send lobby_id (public list) or lobby_code.",
                 )
         elif t == "player_join":
             # Legacy: treat as join_lobby
@@ -1028,12 +1079,9 @@ class LobbyManager:
             if code is not None and str(code).strip() != "":
                 await self.join_lobby_by_code(player_id, str(data.get("name", "")), str(code))
             else:
-                await self.send_to(
+                await self.send_player_error(
                     player_id,
-                    {
-                        "type": "error",
-                        "message": "Use create_lobby or join_lobby with lobby_id / lobby_code.",
-                    },
+                    "Use create_lobby or join_lobby with lobby_id / lobby_code.",
                 )
         elif t == "player_ready":
             await self.player_ready(player_id)
@@ -1054,4 +1102,11 @@ class LobbyManager:
                 str(data.get("reaction", "")),
             )
         else:
-            await self.send_to(player_id, {"type": "error", "message": f"Unknown message: {t}"})
+            label = repr(t) if t is not None else "None"
+            if len(label) > 80:
+                label = label[:77] + "..."
+            await self.send_player_error(
+                player_id,
+                f"Unknown message type: {label}",
+                error_code="UNKNOWN_MESSAGE_TYPE",
+            )

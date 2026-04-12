@@ -3,6 +3,13 @@
  */
 import { authHeadersMultipart } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { notifyMpServerError, showAppError } from "../errorToast.js";
+import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import {
+  navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerJoin,
+  notifyMpPlayerLeave,
+} from "../mpPresenceToast.js";
 import { playSfxMajor, playSfxUploadAlarm } from "../sfx.js";
 import { mountVotingSlideshowScreen } from "./votingSlideshow.js";
 
@@ -16,6 +23,8 @@ export function mountUploadScreen(root, ctx) {
       ? rawDeadline
       : Date.now() / 1000 + 90;
   let preserveWs = false;
+  /** True while unmount closes the socket on purpose (avoid restart overlay). */
+  let teardownClose = false;
   let closedNotified = false;
   /** @type {ReturnType<typeof setInterval> | null} */
   let tickId = null;
@@ -96,8 +105,9 @@ export function mountUploadScreen(root, ctx) {
       }
       if (statusEl) statusEl.textContent = "Uploaded. Waiting for others…";
     } catch (err) {
-      if (statusEl)
-        statusEl.textContent = err instanceof Error ? err.message : "Upload failed";
+      const um = err instanceof Error ? err.message : "Upload failed";
+      if (statusEl) statusEl.textContent = um;
+      showAppError({ message: `Upload failed: ${um}`, errorCode: "UPLOAD_FETCH" });
     }
   });
 
@@ -107,6 +117,16 @@ export function mountUploadScreen(root, ctx) {
       m = JSON.parse(ev.data);
     } catch {
       return;
+    }
+    if (m.type === "lobby_dissolved") {
+      preserveWs = true;
+      void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
+      return;
+    }
+    notifyMpPlayerJoin(m, playerId);
+    notifyMpPlayerLeave(m, playerId);
+    if (m.type === "error") {
+      notifyMpServerError(m);
     }
     if (m.type === "voting_start") {
       preserveWs = true;
@@ -119,6 +139,10 @@ export function mountUploadScreen(root, ctx) {
       });
     }
   };
+  ws.onclose = () => {
+    if (preserveWs || teardownClose) return;
+    showServerRestartingWait();
+  };
   ws.onmessage = onMessage;
 
   return () => {
@@ -126,6 +150,7 @@ export function mountUploadScreen(root, ctx) {
       clearInterval(tickId);
       tickId = null;
     }
+    teardownClose = true;
     root.innerHTML = "";
     if (!preserveWs) {
       try {

@@ -3,6 +3,8 @@
  */
 import { getUsername, validateSession } from "../authApi.js";
 import { getWsUrl } from "../apiOrigin.js";
+import { notifyMpServerError, showAppError } from "../errorToast.js";
+import { showServerRestartingWait } from "../serverRestartOverlay.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { mountLobbyScreen } from "./lobby.js";
 
@@ -56,15 +58,20 @@ export function mountMatchmakingScreen(root, ctx) {
   /** When true, WebSocket is passed to Lobby — do not close on unmount. */
   let handedOffWs = false;
 
-  const fail = (msg) => {
+  const setStatus = (msg) => {
     if (statusEl) statusEl.textContent = msg;
+  };
+
+  const failWithToast = (msg, code) => {
+    setStatus(msg);
+    showAppError({ message: msg, errorCode: code ?? null });
   };
 
   void (async () => {
     const ok = await validateSession();
     if (cancelled) return;
     if (!ok) {
-      fail("Session expired. Please log in again.");
+      failWithToast("Session expired. Please log in again.", "SESSION");
       return;
     }
 
@@ -80,20 +87,21 @@ export function mountMatchmakingScreen(root, ctx) {
     };
 
     ws.onerror = () => {
-      fail("WebSocket error. Is the server running?");
+      failWithToast("WebSocket error. Is the server running?", "WS_ERROR");
     };
 
     ws.onclose = (ev) => {
       if (handedOffWs) return;
       if (ev.code === 4401) {
-        fail("Session expired or not logged in. Please log in again.");
+        failWithToast("Session expired or not logged in. Please log in again.", "WS_4401");
         return;
       }
-      fail(
-        ev.code === 1006
-          ? "Could not connect. Check your network or try again."
-          : "Connection closed. Try again.",
-      );
+      if (ev.code === 1006 || ev.code === 1012) {
+        setStatus("Server is restarting… please wait!");
+        showServerRestartingWait();
+        return;
+      }
+      failWithToast("Connection closed. Try again.", `WS_CLOSE_${ev.code}`);
     };
 
     ws.onmessage = (ev) => {
@@ -119,7 +127,7 @@ export function mountMatchmakingScreen(root, ctx) {
         } else if (lobbyCode) {
           ws?.send(JSON.stringify({ type: "join_lobby", name, lobby_code: lobbyCode }));
         } else {
-          fail("Missing lobby id or code.");
+          failWithToast("Missing lobby id or code.", "MM_CONFIG");
         }
         return;
       }
@@ -137,7 +145,8 @@ export function mountMatchmakingScreen(root, ctx) {
         return;
       }
       if (m.type === "error") {
-        fail(m.message || "Error");
+        setStatus(m.message || "Error");
+        notifyMpServerError(m);
       }
     };
   })();
