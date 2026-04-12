@@ -1405,18 +1405,24 @@ audio {
   color: var(--text-heading);
 }
 
-/* Discord — bottom-left, matches auth-corner chrome */
-.discord-corner {
+/* Top-left social links — stack, matches auth-corner chrome */
+.corner-social-stack {
   position: fixed;
-  bottom: 0.75rem;
+  top: 0.75rem;
   left: 0.75rem;
   z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.corner-social-link {
   box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100px;
-  height: 100px;
+  width: 76px;
+  height: 76px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(8, 6, 6, 0.94);
@@ -1426,22 +1432,51 @@ audio {
   transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 }
 
-.discord-corner:hover {
+.corner-social-link:hover {
   border-color: var(--red);
   color: var(--red-bright);
   background: rgba(20, 8, 8, 0.96);
 }
 
-.discord-corner:focus-visible {
+.corner-social-link:focus-visible {
   outline: 1px solid var(--red-bright);
   outline-offset: 2px;
 }
 
-.discord-corner-icon {
+.corner-social-icon {
   display: block;
-  width: 56px;
-  height: 42px;
+  width: 42px;
+  height: 32px;
   flex-shrink: 0;
+}
+
+.corner-social-tooltip {
+  position: fixed;
+  z-index: 400;
+  left: 0;
+  top: 0;
+  max-width: min(300px, calc(100vw - 20px));
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 6, 6, 0.96);
+  backdrop-filter: blur(8px);
+  color: var(--text-heading);
+  font-family: inherit;
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  opacity: 1;
+  visibility: visible;
+  -webkit-font-smoothing: none;
+  transition: opacity 0.1s ease;
+}
+
+.corner-social-tooltip--hidden {
+  opacity: 0;
 }
 
 /* Fixed account — top-right, card above actions */

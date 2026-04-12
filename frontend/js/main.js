@@ -7,8 +7,10 @@ import { getUsername, isLoggedIn, validateSession } from "./authApi.js";
 import { showAppError } from "./errorToast.js";
 import { playSfxBeatBattle } from "./sfx.js";
 import { mountModeSelectScreen } from "./screens/modeSelect.js";
+import { initCornerSocialTooltips } from "./cornerSocialTooltips.js";
 
 function boot() {
+  initCornerSocialTooltips();
   window.addEventListener("error", (ev) => {
     const fn = ev.filename || "";
     if (!fn || fn.includes("extension://") || fn.includes("moz-extension://")) return;
