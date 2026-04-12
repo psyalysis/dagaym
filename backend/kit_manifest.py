@@ -1,5 +1,5 @@
 """
-Build ``/api/kit-manifest`` payload: sorted WAV paths per logical kit key (matches client kit build).
+Build ``/api/kit-manifest`` payload: sorted media paths per logical kit key (matches client kit build).
 """
 
 from __future__ import annotations
@@ -7,13 +7,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .audio_utils import list_dataset_samples_in_dir
 from .generator import DATASET_ROOT, CATEGORY_FOLDERS, _LIGHT_KIT_KEYS
 
 
-def _wavs_sorted(d: Path) -> list[Path]:
+def _samples_sorted(d: Path) -> list[Path]:
     if not d.is_dir():
         return []
-    return sorted(p for p in d.iterdir() if p.is_file() and p.suffix.lower() == ".wav")
+    try:
+        return list_dataset_samples_in_dir(d)
+    except ValueError:
+        return []
 
 
 def _dataset_dir(logical: str) -> Path:
@@ -42,14 +46,14 @@ def build_kit_manifest() -> dict[str, Any]:
     static_keys = [k for k in _LIGHT_KIT_KEYS if not k.startswith("synth")]
     for logical in static_keys:
         d = _dataset_dir(logical)
-        wavs = _wavs_sorted(d)
-        out[logical] = [_rel_media_path(p) for p in wavs]
+        samples = _samples_sorted(d)
+        out[logical] = [_rel_media_path(p) for p in samples]
 
     synth_dir = DATASET_ROOT / "synths"
-    synth_wavs = _wavs_sorted(synth_dir)
-    synth_rel = [_rel_media_path(p) for p in synth_wavs]
+    synth_samples = _samples_sorted(synth_dir)
+    synth_rel = [_rel_media_path(p) for p in synth_samples]
 
     for stem in ("synth1", "synth2", "synth3"):
         out[stem] = list(synth_rel)
 
-    return {"version": 2, "sampleRate": 44100, "keys": out}
+    return {"version": 4, "sampleRate": 44100, "keys": out}

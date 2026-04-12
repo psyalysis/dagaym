@@ -6,6 +6,7 @@ import { getApiBase } from "../apiOrigin.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { RANK_BASELINE_KEY, RANK_PENDING_KEY } from "../rankUi.js";
 import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
 import { playSfxMinor } from "../sfx.js";
 
 function getWaveSurfer() {
@@ -213,7 +214,22 @@ export function mountResultsScreen(root, ctx) {
     });
   }
 
+  const unmountMpChat =
+    wsSock instanceof WebSocket ? mountMpChat({ ws: wsSock, playerId }) : () => {};
+
   if (wsSock instanceof WebSocket) {
+    wsSock.onmessage = (ev) => {
+      let m;
+      try {
+        m = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      ingestMpChatMessage(m);
+      if (m.type === "error") {
+        mpChatHandleErrorPayload(m);
+      }
+    };
     wsSock.onclose = () => {
       if (teardownClose) return;
       showServerRestartingWait();
@@ -250,6 +266,7 @@ export function mountResultsScreen(root, ctx) {
   });
 
   return () => {
+    unmountMpChat();
     waveCleanups.forEach((c) => c.destroy());
     waveCleanups.length = 0;
     objectUrls.forEach((u) => URL.revokeObjectURL(u));

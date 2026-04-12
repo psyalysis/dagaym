@@ -10,6 +10,7 @@ import {
   notifyMpPlayerJoin,
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
+import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
 import { playSfxMinor } from "../sfx.js";
 import { mountVoteSelectionScreen } from "./voteSelection.js";
 
@@ -132,6 +133,9 @@ export function mountVotingSlideshowScreen(root, ctx) {
   let slideObjectUrl = null;
   /** @type {string | null} */
   let currentBeatOwnerId = null;
+
+  const unmountMpChat =
+    wsSock instanceof WebSocket ? mountMpChat({ ws: wsSock, playerId }) : () => {};
 
   root.innerHTML = `
     <div class="screen slideshow arcade-panel">
@@ -425,6 +429,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     } catch {
       return;
     }
+    ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
       void navigateToMenuAfterLobbyDissolved(ctx, wsSock, m);
@@ -433,6 +438,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
     if (m.type === "error") {
+      mpChatHandleErrorPayload(m);
       notifyMpServerError(m);
     }
     if (m.type === "beat_reaction" && m.from_name && m.reaction && m.target_player_id) {
@@ -464,6 +470,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
   }
 
   return () => {
+    unmountMpChat();
     if (beatReactionCooldownTimer != null) clearTimeout(beatReactionCooldownTimer);
     clearBeatToastTimers();
     removeBeatToastHost();

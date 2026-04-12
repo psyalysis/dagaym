@@ -46,7 +46,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 UPLOADS_ROOT = _PROJECT_ROOT / "uploads"
 FRONTEND_ROOT = _PROJECT_ROOT / "frontend"
 _DATASET_ROOT = _PROJECT_ROOT / "dataset"
-_KIT_MANIFEST_CACHE: dict[str, Any] | None = None
 
 MAX_BEAT_BYTES = 15 * 1024 * 1024
 
@@ -111,11 +110,8 @@ app.include_router(ws_router)
 
 @app.get("/api/kit-manifest")
 def get_kit_manifest() -> dict[str, Any]:
-    """Sorted WAV paths per stem (cached); client uses with :func:`pick_index` parity."""
-    global _KIT_MANIFEST_CACHE
-    if _KIT_MANIFEST_CACHE is None:
-        _KIT_MANIFEST_CACHE = build_kit_manifest()
-    return _KIT_MANIFEST_CACHE
+    """Sorted dataset media paths per stem; client uses with :func:`pick_index` parity."""
+    return build_kit_manifest()
 
 
 class GenerateRequest(BaseModel):

@@ -3,7 +3,7 @@ services:
   - type: web
     name: beat-battle
     runtime: python
-    buildCommand: pip install -r backend/requirements.txt
+    buildCommand: apt-get update -y && apt-get install -y --no-install-recommends ffmpeg && pip install -r backend/requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: COOKUP_JWT_SECRET

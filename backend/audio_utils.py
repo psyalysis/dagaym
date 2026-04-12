@@ -28,22 +28,29 @@ from scipy import signal
 SAMPLE_RATE = 44100
 
 
-def _list_wav_files(category_dir: Path) -> list[Path]:
-    paths: list[Path] = []
-    for p in category_dir.iterdir():
-        if p.is_file() and p.suffix.lower() == ".wav":
-            paths.append(p)
-    return sorted(paths)
+def list_dataset_samples_in_dir(d: Path) -> list[Path]:
+    """
+    List ``.mp3`` samples in ``d`` (dataset media for the browser is MP3-only).
+    Sorted by filename so order matches prior ``sorted()`` glob behavior.
+    """
+    if not d.is_dir():
+        raise FileNotFoundError(f"Directory not found: {d}")
+    chosen: list[Path] = []
+    for p in d.iterdir():
+        if not p.is_file():
+            continue
+        if p.suffix.lower() == ".mp3":
+            chosen.append(p)
+    if not chosen:
+        raise ValueError(f"No .mp3 files in {d}. Add at least one sample.")
+    return sorted(chosen, key=lambda p: p.name.lower())
 
 
 def list_category_wavs(category_dir: Path) -> list[Path]:
-    """List .wav sources for a category directory (sorted)."""
+    """List ``.mp3`` sources for a category directory (sorted)."""
     if not category_dir.is_dir():
         raise FileNotFoundError(f"Category folder not found: {category_dir}")
-    wavs = _list_wav_files(category_dir)
-    if not wavs:
-        raise ValueError(f"No .wav files in {category_dir}. Add at least one sample.")
-    return wavs
+    return list_dataset_samples_in_dir(category_dir)
 
 
 def load_random_sample(category_dir: Path, rng: np.random.Generator) -> tuple[np.ndarray, int]:
@@ -63,7 +70,7 @@ def load_random_sample(category_dir: Path, rng: np.random.Generator) -> tuple[np
 
 
 def load_audio_file(path: Path) -> tuple[np.ndarray, int]:
-    """Load a specific ``.wav`` as mono at ``SAMPLE_RATE``."""
+    """Load a specific audio file (``.wav`` or ``.mp3``, etc.) as mono at ``SAMPLE_RATE``."""
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Audio file not found: {path}")
@@ -97,14 +104,35 @@ def load_wav_light_mono(path: Path) -> np.ndarray:
     return np.interp(t_new, t_old, y).astype(np.float64)
 
 
+def _load_mp3_light_stereo(path: Path) -> np.ndarray:
+    """Load ``.mp3`` at ``SAMPLE_RATE`` via librosa; match :func:`load_wav_light_stereo` layout."""
+    y, _ = librosa.load(str(path), sr=SAMPLE_RATE, mono=False)
+    y = np.asarray(y, dtype=np.float64)
+    if y.ndim == 1:
+        return y
+    # librosa: shape ``(n_channels, n_samples)``
+    y = y.T
+    if y.shape[1] == 1:
+        return np.asarray(y[:, 0], dtype=np.float64)
+    if y.shape[1] == 2 and np.allclose(y[:, 0], y[:, 1], rtol=1e-5, atol=1e-7):
+        return np.asarray(y[:, 0], dtype=np.float64)
+    return y.astype(np.float64, copy=False)
+
+
 def load_wav_light_stereo(path: Path) -> np.ndarray:
     """
-    Load ``.wav`` at ``SAMPLE_RATE`` using soundfile + linear resample per channel.
+    Load ``.wav`` or ``.mp3`` at ``SAMPLE_RATE``.
+    WAV: soundfile + linear resample per channel. MP3: librosa.
     Returns shape ``(n,)`` for mono or ``(n, 2)`` for stereo (no downmix).
     """
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Audio file not found: {path}")
+    ext = path.suffix.lower()
+    if ext == ".mp3":
+        return _load_mp3_light_stereo(path)
+    if ext != ".wav":
+        raise ValueError(f"Unsupported format for light load: {path}")
     data, sr = sf.read(str(path), always_2d=True)
     x = np.asarray(data, dtype=np.float64)
     sr = int(sr)

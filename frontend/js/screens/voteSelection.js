@@ -11,6 +11,7 @@ import {
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
 import { playSfxMajor } from "../sfx.js";
 import { mountResultsScreen } from "./results.js";
 
@@ -84,6 +85,9 @@ export function mountVoteSelectionScreen(root, ctx) {
   };
 
   const targets = beats.filter((b) => b.player_id !== playerId);
+
+  const unmountMpChat =
+    wsSock instanceof WebSocket ? mountMpChat({ ws: wsSock, playerId }) : () => {};
 
   const setVoteCardsLocked = (locked) => {
     voteUiLocked = locked;
@@ -251,6 +255,7 @@ export function mountVoteSelectionScreen(root, ctx) {
     } catch {
       return;
     }
+    ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
       void navigateToMenuAfterLobbyDissolved(ctx, wsSock, m);
@@ -259,9 +264,12 @@ export function mountVoteSelectionScreen(root, ctx) {
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
     if (m.type === "error") {
-      setVoteCardsLocked(false);
-      const err = root.querySelector("#vote-err");
-      if (err) err.textContent = m.message || "Error";
+      mpChatHandleErrorPayload(m);
+      if (m.error_code !== "MP_CHAT_COOLDOWN") {
+        setVoteCardsLocked(false);
+        const err = root.querySelector("#vote-err");
+        if (err) err.textContent = m.message || "Error";
+      }
       notifyMpServerError(m);
     }
     if (m.type === "results") {
@@ -276,6 +284,7 @@ export function mountVoteSelectionScreen(root, ctx) {
   wsSock.onmessage = onMessage;
 
   return () => {
+    unmountMpChat();
     if (unlockInterval) clearInterval(unlockInterval);
     teardownBeatWaveforms();
     teardownClose = true;

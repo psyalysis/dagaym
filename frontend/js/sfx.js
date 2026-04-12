@@ -15,41 +15,41 @@ function playFile(filename, volume = 0.88) {
 
 /** Big steps: generate kit, enter matchmaking, ready, upload beat, cast vote, etc. */
 export function playSfxMajor() {
-  playFile("UIMajor.wav");
+  playFile("UIMajor.mp3");
 }
 
 /** Routine navigation / secondary actions. */
 export function playSfxMinor() {
-  playFile("UIMinor.wav");
+  playFile("UIMinor.mp3");
 }
 
 export function playSfxOn() {
-  playFile("UIOn.wav");
+  playFile("UIOn.mp3");
 }
 
 export function playSfxOff() {
-  playFile("UIOff.wav");
+  playFile("UIOff.mp3");
 }
 
 /** Multiplayer match / cook phase begins. */
 export function playSfxBeatBattle() {
-  playFile("BeatBattle.wav", 0.92);
+  playFile("BeatBattle.mp3", 0.92);
 }
 
 /** Upload phase: window is open — time to upload your beat. */
 export function playSfxUploadAlarm() {
-  playFile("Alarm.wav", 0.88);
+  playFile("Alarm.mp3", 0.88);
 }
 
 /** Everyone else left mid-match — same asset as upload alarm. */
 export function playSfxSoloMatchAlarm() {
-  playFile("Alarm.wav", 0.88);
+  playFile("Alarm.mp3", 0.88);
 }
 
 export function playSfxPlayerJoin() {
-  playFile("PlayerJoin.wav", 0.88);
+  playFile("PlayerJoin.mp3", 0.88);
 }
 
 export function playSfxPlayerLeave() {
-  playFile("PlayerLeave.wav", 0.88);
+  playFile("PlayerLeave.mp3", 0.88);
 }

@@ -3,13 +3,13 @@
   "spice": 0.5,
   "key_order": ["snare", "clap", "synth1"],
   "lists": {
-    "snare": ["snares/a.wav", "snares/b.wav", "snares/c.wav"],
-    "clap": ["claps/x.wav"],
-    "synth1": ["synths/s0.wav", "synths/s1.wav"]
+    "snare": ["snares/a.mp3", "snares/b.mp3", "snares/c.mp3"],
+    "clap": ["claps/x.mp3"],
+    "synth1": ["synths/s0.mp3", "synths/s1.mp3"]
   },
   "expected_pick": {
-    "snare": "snares/b.wav",
-    "clap": "claps/x.wav",
-    "synth1": "synths/s0.wav"
+    "snare": "snares/b.mp3",
+    "clap": "claps/x.mp3",
+    "synth1": "synths/s0.mp3"
   }
 }

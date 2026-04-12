@@ -342,6 +342,126 @@ audio {
   padding-block: clamp(0.85rem, 2.5vw, 2rem);
 }
 
+body.mp-chat-open .app-root {
+  padding-bottom: max(11.5rem, calc(2.8rem + env(safe-area-inset-bottom, 0px)));
+}
+
+/* Fixed match chat (lobby → results) */
+.mp-chat {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 65;
+  padding: 0.5rem clamp(0.65rem, 3vw, 1.25rem) max(0.5rem, env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+
+.mp-chat-inner {
+  pointer-events: auto;
+  max-width: 1020px;
+  margin: 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(6, 6, 6, 0.97);
+  padding: 0.55rem 0.65rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.mp-chat-label {
+  margin: 0;
+  font-size: 0.58rem;
+}
+
+.mp-chat-log {
+  max-height: 5.5rem;
+  overflow-y: auto;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--text);
+  padding: 0.15rem 0.1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mp-chat-empty {
+  margin: 0.2rem 0;
+  text-align: center;
+  font-size: 0.65rem;
+}
+
+.mp-chat-line {
+  margin-bottom: 0.25rem;
+  word-break: break-word;
+}
+
+.mp-chat-line--emoji {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.mp-chat-who {
+  color: var(--text-muted);
+  margin-right: 0.35rem;
+}
+
+.mp-chat-text {
+  color: var(--text-heading);
+}
+
+.mp-chat-emoji {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.mp-chat-err {
+  margin: 0;
+  font-size: 0.62rem;
+  min-height: 0.9rem;
+}
+
+.mp-chat-composer {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+/* Override .arcade-input (later in file: width 100% / max-width 320px / margin-bottom). */
+.mp-chat-composer .mp-chat-input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  margin-bottom: 0;
+}
+
+.mp-chat-send {
+  flex: 0 0 auto;
+  align-self: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.62rem;
+}
+
+.mp-chat-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.mp-chat-emoji-btn {
+  min-width: 1.95rem;
+  min-height: 1.95rem;
+  font-size: 1rem;
+}
+
 .screen {
   position: relative;
   width: 100%;
@@ -1680,7 +1800,6 @@ audio {
 
 .screen.lobby {
   position: relative;
-  padding-bottom: 5.5rem;
 }
 
 .lobby-kit-overlay {

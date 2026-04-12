@@ -79,6 +79,8 @@ class Lobby:
     results_at: float | None = None
     cook_duration_min: int = DEFAULT_COOK_DURATION_MIN
     cook_finished: set[str] = field(default_factory=set)
+    # player_id -> unix time of last mp_chat send (text or emoji)
+    chat_last_sent: dict[str, float] = field(default_factory=dict)
 
     def lobby_snapshot(self) -> dict[str, Any]:
         host_id = next(iter(self.players)) if self.players else ""

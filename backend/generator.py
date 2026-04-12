@@ -27,10 +27,10 @@ from .audio_utils import (
     apply_saturation,
     apply_time_stretch_optional,
     layer_samples,
+    list_dataset_samples_in_dir,
     load_audio_file,
     list_category_wavs,
     load_random_sample,
-    load_wav_light_mono,
     load_wav_light_stereo,
     normalize_audio,
     quality_check,
@@ -359,7 +359,7 @@ def _generate_with_retries(
     d = _dataset_dir(logical)
     sources = list_category_wavs(d)
     if not sources:
-        raise ValueError(f"No .wav files in {d}.")
+        raise ValueError(f"No .mp3 files in {d}.")
 
     # If one source fails MAX_GENERATION_ATTEMPTS, switch source and try again.
     start = int(base_rng.integers(0, len(sources)))
@@ -446,23 +446,21 @@ def generate_kit(
     if not synth_dir.is_dir():
         raise FileNotFoundError(f"Category folder not found: {synth_dir}")
 
-    wavs = sorted(p for p in synth_dir.iterdir() if p.is_file() and p.suffix.lower() == ".wav")
-    if not wavs:
-        raise ValueError(f"No .wav files in {synth_dir}.")
+    samples = list_dataset_samples_in_dir(synth_dir)
 
-    if len(wavs) >= 3:
-        idx = rng.choice(len(wavs), size=3, replace=False)
-        chosen = [wavs[int(i)] for i in idx]
-    elif len(wavs) == 2:
+    if len(samples) >= 3:
+        idx = rng.choice(len(samples), size=3, replace=False)
+        chosen = [samples[int(i)] for i in idx]
+    elif len(samples) == 2:
         idx = rng.choice(2, size=3, replace=True)
-        chosen = [wavs[int(i)] for i in idx]
+        chosen = [samples[int(i)] for i in idx]
     else:
-        chosen = [wavs[0], wavs[0], wavs[0]]
+        chosen = [samples[0], samples[0], samples[0]]
 
     for i, wav_path in enumerate(chosen, start=1):
         stem = f"synth{i}"
         p = resolve_sound(stem, cfg)
-        synth_sources = [p for p in wavs if p != wav_path] or wavs
+        synth_sources = [p for p in samples if p != wav_path] or samples
         synth_sources = [wav_path] + synth_sources
         max_source_swaps = max(1, min(len(synth_sources), 8))
         accepted = False
@@ -534,10 +532,8 @@ def generate_light_stem(
         synth_dir = DATASET_ROOT / "synths"
         if not synth_dir.is_dir():
             raise FileNotFoundError(f"Category folder not found: {synth_dir}")
-        wavs = sorted(p for p in synth_dir.iterdir() if p.is_file() and p.suffix.lower() == ".wav")
-        if not wavs:
-            raise ValueError(f"No .wav files in {synth_dir}.")
-        path_pick = wavs[pick_index(seed, slot_index, s, len(wavs))]
+        samples = list_dataset_samples_in_dir(synth_dir)
+        path_pick = samples[pick_index(seed, slot_index, s, len(samples))]
         y = load_wav_light_stereo(path_pick)
     else:
         d = _dataset_dir(logical)

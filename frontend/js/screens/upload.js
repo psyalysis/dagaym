@@ -10,6 +10,7 @@ import {
   notifyMpPlayerJoin,
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
+import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
 import { playSfxMajor, playSfxUploadAlarm } from "../sfx.js";
 import { mountVotingSlideshowScreen } from "./votingSlideshow.js";
 
@@ -30,6 +31,7 @@ export function mountUploadScreen(root, ctx) {
   let tickId = null;
 
   mountAuthCornerLeave(ctx);
+  const unmountMpChat = mountMpChat({ ws, playerId });
 
   root.innerHTML = `
     <div class="screen upload arcade-panel">
@@ -118,6 +120,7 @@ export function mountUploadScreen(root, ctx) {
     } catch {
       return;
     }
+    ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
       void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
@@ -126,6 +129,7 @@ export function mountUploadScreen(root, ctx) {
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
     if (m.type === "error") {
+      mpChatHandleErrorPayload(m);
       notifyMpServerError(m);
     }
     if (m.type === "voting_start") {
@@ -146,6 +150,7 @@ export function mountUploadScreen(root, ctx) {
   ws.onmessage = onMessage;
 
   return () => {
+    unmountMpChat();
     if (tickId != null) {
       clearInterval(tickId);
       tickId = null;

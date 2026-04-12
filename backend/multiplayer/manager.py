@@ -32,6 +32,7 @@ from .lobby import (
     Player,
     canonical_spice,
 )
+from .mp_chat_text import chat_cooldown_elapsed, normalize_and_validate_mp_chat_text
 
 
 def _coerce_bool(v: Any, default: bool = True) -> bool:
@@ -89,10 +90,22 @@ def _normalize_player_spices(data: dict[str, Any]) -> list[float] | None:
     return sorted(set(out))
 
 
-# Pre-game lobby emoji keys (client maps to Unicode).
-LOBBY_EMOJI_KEYS: frozenset[str] = frozenset({"wave"})
+# Quick emoji keys for mp_chat (client maps to Unicode).
+MP_CHAT_EMOJI_KEYS: frozenset[str] = frozenset({"wave", "fire", "heart", "skull", "hundred"})
+# Legacy alias: same keys as mp_chat emoji.
+LOBBY_EMOJI_KEYS: frozenset[str] = MP_CHAT_EMOJI_KEYS
 # Reactions while listening to beats in the voting slideshow.
 BEAT_REACTION_KEYS: frozenset[str] = frozenset({"fire", "thumbs_up", "thumbs_down", "hundred"})
+
+_MP_CHAT_STATES: frozenset[LobbyState] = frozenset(
+    {
+        LobbyState.LOBBY,
+        LobbyState.COOKING,
+        LobbyState.UPLOAD,
+        LobbyState.VOTING,
+        LobbyState.RESULTS,
+    },
+)
 
 
 class LobbyManager:
@@ -779,35 +792,74 @@ class LobbyManager:
                 return
             lobby.slideshow_completed.add(player_id)
 
-    async def lobby_emoji(self, player_id: str, emoji_key: str) -> None:
-        key = str(emoji_key).strip()
-        if key not in LOBBY_EMOJI_KEYS:
-            await self.send_player_error(player_id, "Invalid emoji.")
+    async def mp_chat(self, player_id: str, data: dict[str, Any]) -> None:
+        text_raw = data.get("text")
+        emoji_raw = data.get("emoji")
+        text_nonempty = text_raw is not None and str(text_raw).strip() != ""
+        emoji_nonempty = emoji_raw is not None and str(emoji_raw).strip() != ""
+
+        if text_nonempty and emoji_nonempty:
+            await self.send_player_error(player_id, "Send either text or emoji, not both.")
             return
+        if not text_nonempty and not emoji_nonempty:
+            await self.send_player_error(player_id, "Empty message.")
+            return
+
+        now = time.time()
         async with self._lock:
             lobby_id = self.player_lobby.get(player_id)
             if not lobby_id:
                 return
             lobby = self.lobbies.get(lobby_id)
-            if not lobby or lobby.state != LobbyState.LOBBY:
-                await self.send_player_error(
-                    player_id,
-                    "Emoji chat is only available before the match starts.",
-                )
+            if not lobby or lobby.state not in _MP_CHAT_STATES:
+                await self.send_player_error(player_id, "Chat is not available right now.")
                 return
             pl = lobby.players.get(player_id)
             if not pl:
                 return
-            name = pl.name
-        await self.broadcast(
-            lobby_id,
-            {
-                "type": "lobby_emoji",
-                "player_id": player_id,
-                "name": name,
-                "emoji": key,
-            },
-        )
+            last = lobby.chat_last_sent.get(player_id)
+            if not chat_cooldown_elapsed(last, now):
+                await self.send_player_error(
+                    player_id,
+                    "Wait before sending another message.",
+                    error_code="MP_CHAT_COOLDOWN",
+                )
+                return
+
+            if text_nonempty:
+                normalized, err = normalize_and_validate_mp_chat_text(text_raw)
+                if err or normalized is None:
+                    await self.send_player_error(player_id, err or "Invalid message.")
+                    return
+                lobby.chat_last_sent[player_id] = now
+                name = pl.name
+                payload: dict[str, Any] = {
+                    "type": "mp_chat",
+                    "player_id": player_id,
+                    "name": name,
+                    "text": normalized,
+                    "ts": int(now * 1000),
+                }
+            else:
+                key = str(emoji_raw).strip()
+                if key not in MP_CHAT_EMOJI_KEYS:
+                    await self.send_player_error(player_id, "Invalid emoji.")
+                    return
+                lobby.chat_last_sent[player_id] = now
+                name = pl.name
+                payload = {
+                    "type": "mp_chat",
+                    "player_id": player_id,
+                    "name": name,
+                    "emoji": key,
+                    "ts": int(now * 1000),
+                }
+
+        await self.broadcast(lobby_id, payload)
+
+    async def lobby_emoji(self, player_id: str, emoji_key: str) -> None:
+        """Legacy client message; same rules as ``mp_chat`` with emoji only."""
+        await self.mp_chat(player_id, {"emoji": emoji_key})
 
     async def beat_reaction(self, player_id: str, target_player_id: str, reaction: str) -> None:
         r = str(reaction).strip()
@@ -921,6 +973,7 @@ class LobbyManager:
                     if gone:
                         left_name = gone.name
                     lobby.cook_finished.discard(player_id)
+                    lobby.chat_last_sent.pop(player_id, None)
                     left_count = len(lobby.players)
                     state_after = lobby.state
         self.pop_auth_session(player_id)
@@ -1093,6 +1146,8 @@ class LobbyManager:
             await self.cast_vote(player_id, str(data.get("target_player_id", "")))
         elif t == "slideshow_complete":
             await self.slideshow_complete(player_id)
+        elif t == "mp_chat":
+            await self.mp_chat(player_id, data)
         elif t == "lobby_emoji":
             await self.lobby_emoji(player_id, str(data.get("emoji", "")))
         elif t == "beat_reaction":

@@ -22,6 +22,7 @@ import {
 } from "../kitFromSeed.js";
 import { runSynthReveal } from "../synthReveal.js";
 import { mountKitLayoutShell } from "../kitGridLayout.js";
+import { ingestMpChatMessage, mountMpChat, mpChatHandleErrorPayload } from "../mpChat.js";
 import { mountUploadScreen } from "./upload.js";
 
 const SOUND_KEYS = [
@@ -214,6 +215,7 @@ function setupCookUI(root, ctx, sounds) {
   };
 
   mountAuthCornerLeave(ctx);
+  const unmountMpChat = mountMpChat({ ws, playerId });
 
   root.innerHTML = `
     <div class="screen cook arcade-panel">
@@ -390,6 +392,7 @@ function setupCookUI(root, ctx, sounds) {
     } catch {
       return;
     }
+    ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
       void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
@@ -398,6 +401,7 @@ function setupCookUI(root, ctx, sounds) {
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
     if (m.type === "error") {
+      mpChatHandleErrorPayload(m);
       notifyMpServerError(m);
     }
     if (m.type === "timer_update" && m.phase === "cooking") {
@@ -446,6 +450,7 @@ function setupCookUI(root, ctx, sounds) {
   ws.onmessage = onMessage;
 
   return () => {
+    unmountMpChat();
     if (localTimerId != null) {
       clearInterval(localTimerId);
       localTimerId = null;
