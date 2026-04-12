@@ -8,8 +8,10 @@ import { showAppError } from "./errorToast.js";
 import { playSfxBeatBattle } from "./sfx.js";
 import { mountModeSelectScreen } from "./screens/modeSelect.js";
 import { initCornerSocialTooltips } from "./cornerSocialTooltips.js";
+import { initDevStatsPanel, recordPageVisit } from "./devStatsPanel.js";
 
 function boot() {
+  recordPageVisit();
   initCornerSocialTooltips();
   window.addEventListener("error", (ev) => {
     const fn = ev.filename || "";
@@ -54,6 +56,7 @@ function boot() {
   if (isLoggedIn()) {
     void validateSession().then((ok) => {
       if (!ok) navigate(mountModeSelectScreen);
+      else initDevStatsPanel();
     });
   }
 }

@@ -27,7 +27,7 @@ from .database import get_db, init_db
 from .generator import generate_kit_light
 from .kit_manifest import build_kit_manifest
 from .kit_payload import encode_paths_to_sounds
-from .models import User
+from .models import SiteStats, User
 from .multiplayer import LobbyManager
 from .multiplayer.lobby import LobbyState
 from .multiplayer.ws import router as ws_router
@@ -49,6 +49,30 @@ _DATASET_ROOT = _PROJECT_ROOT / "dataset"
 _KIT_MANIFEST_CACHE: dict[str, Any] | None = None
 
 MAX_BEAT_BYTES = 15 * 1024 * 1024
+
+_ALLOWED_DEV_STATS_USERS = frozenset({"psyalysis", "polystalgia"})
+
+
+def _require_dev_stats_user(user: User) -> None:
+    if user.username.lower() not in _ALLOWED_DEV_STATS_USERS:
+        raise HTTPException(status_code=403, detail="Not allowed.")
+
+
+def _increment_total_visits(db: Session) -> int:
+    row = db.get(SiteStats, 1)
+    if row is None:
+        row = SiteStats(id=1, total_visits=0)
+        db.add(row)
+        db.flush()
+    row.total_visits += 1
+    db.commit()
+    db.refresh(row)
+    return int(row.total_visits)
+
+
+def _get_total_visits(db: Session) -> int:
+    row = db.get(SiteStats, 1)
+    return int(row.total_visits) if row is not None else 0
 
 
 @asynccontextmanager
@@ -122,6 +146,29 @@ async def post_generate(body: GenerateRequest) -> dict[str, Any]:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/stats/visit")
+def post_stats_visit(db: Session = Depends(get_db)) -> dict[str, int]:
+    """Increment once per frontend boot (full page load)."""
+    total = _increment_total_visits(db)
+    return {"total_visits": total}
+
+
+@app.get("/api/dev/site-stats")
+async def get_dev_site_stats(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Live counters for owner accounts only (JWT)."""
+    _require_dev_stats_user(user)
+    manager: LobbyManager = request.app.state.manager
+    return {
+        "players_online": len(manager.player_ws),
+        "servers_open": len(manager.lobbies),
+        "total_visits": _get_total_visits(db),
+    }
 
 
 @app.post("/register", response_model=RegisterResponse)

@@ -72,3 +72,11 @@ def init_db() -> None:
     from . import models  # noqa: F401 — register models
 
     Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        row = db.get(models.SiteStats, 1)
+        if row is None:
+            db.add(models.SiteStats(id=1, total_visits=0))
+            db.commit()
+    finally:
+        db.close()
