@@ -33,7 +33,7 @@ function boot() {
     });
   });
 
-  playSfxBeatBattle();
+  setTimeout(() => playSfxBeatBattle(), 0);
 
   const root = document.getElementById("app-root");
   if (!root) return;

@@ -4,6 +4,7 @@ Build ``/api/kit-manifest`` payload: sorted media paths per logical kit key (mat
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -57,3 +58,9 @@ def build_kit_manifest() -> dict[str, Any]:
         out[stem] = list(synth_rel)
 
     return {"version": 4, "sampleRate": 44100, "keys": out}
+
+
+@lru_cache(maxsize=1)
+def get_kit_manifest_cached() -> dict[str, Any]:
+    """Single in-memory snapshot; dataset paths change only on deploy."""
+    return build_kit_manifest()

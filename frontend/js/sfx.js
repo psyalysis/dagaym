@@ -3,10 +3,24 @@
  */
 const dir = new URL("../sfx/", import.meta.url);
 
+/** @type {Map<string, HTMLAudioElement>} */
+const audioCache = new Map();
+
+function audioFor(filename) {
+  let a = audioCache.get(filename);
+  if (!a) {
+    a = new Audio(new URL(filename, dir).href);
+    a.preload = "auto";
+    audioCache.set(filename, a);
+  }
+  return a;
+}
+
 function playFile(filename, volume = 0.88) {
   try {
-    const a = new Audio(new URL(filename, dir).href);
+    const a = audioFor(filename);
     a.volume = volume;
+    a.currentTime = 0;
     void a.play().catch(() => {});
   } catch {
     /* ignore */

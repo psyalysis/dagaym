@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, ORJSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
@@ -26,7 +27,7 @@ from sqlalchemy.orm import Session
 from .auth import get_current_user, login_user, register_user
 from .database import get_db, init_db
 from .generator import generate_kit_light
-from .kit_manifest import build_kit_manifest
+from .kit_manifest import get_kit_manifest_cached
 from .kit_payload import encode_paths_to_sounds
 from .models import SiteStats, Supporter, User
 from .multiplayer import LobbyManager
@@ -97,6 +98,7 @@ async def lifespan(app: FastAPI):
             await manager.cleanup_stale()
 
     task = asyncio.create_task(cleanup_loop())
+    await asyncio.to_thread(get_kit_manifest_cached)
     yield
     task.cancel()
     try:
@@ -115,13 +117,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _static_cache_control(path: str) -> str | None:
+    """Long cache for versioned-by-deploy assets; HTML always revalidates."""
+    if path.startswith("/sfx/") or path.startswith("/js/") or path.startswith("/media/"):
+        return "public, max-age=86400"
+    if path.endswith((".css", ".woff2", ".svg", ".png", ".ico", ".webp", ".mp3")):
+        return "public, max-age=86400"
+    if path == "/" or path.endswith(".html"):
+        return "no-cache"
+    return None
+
+
+class StaticCacheControlMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.method != "GET":
+            return response
+        path = request.url.path
+        if path.startswith("/api/"):
+            return response
+        cc = _static_cache_control(path)
+        if cc:
+            response.headers["Cache-Control"] = cc
+        return response
+
+
+app.add_middleware(StaticCacheControlMiddleware)
+
 app.include_router(ws_router)
 
 
-@app.get("/api/kit-manifest")
-def get_kit_manifest() -> dict[str, Any]:
+@app.get("/api/kit-manifest", response_class=ORJSONResponse)
+def get_kit_manifest() -> ORJSONResponse:
     """Sorted dataset media paths per stem; client uses with :func:`pick_index` parity."""
-    return build_kit_manifest()
+    return ORJSONResponse(
+        get_kit_manifest_cached(),
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 class GenerateRequest(BaseModel):
