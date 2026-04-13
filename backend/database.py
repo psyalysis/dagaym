@@ -30,6 +30,21 @@ DATABASE_URL = _resolve_database_url()
 
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
+# PostgreSQL (e.g. Neon): pool defaults; override via env if you scale Render instances
+# (each process has its own pool — total connections ≈ instances × (pool_size + max_overflow)).
+def _pg_pool_kw() -> dict:
+    pool_size = max(1, int(os.environ.get("COOKUP_DB_POOL_SIZE", "10")))
+    max_overflow = max(0, int(os.environ.get("COOKUP_DB_MAX_OVERFLOW", "10")))
+    pool_recycle = max(60, int(os.environ.get("COOKUP_DB_POOL_RECYCLE", "300")))
+    pool_timeout = max(5, int(os.environ.get("COOKUP_DB_POOL_TIMEOUT", "30")))
+    return {
+        "pool_size": pool_size,
+        "max_overflow": max_overflow,
+        "pool_recycle": pool_recycle,
+        "pool_timeout": pool_timeout,
+    }
+
+
 if _IS_SQLITE:
     engine = create_engine(
         DATABASE_URL,
@@ -50,9 +65,8 @@ else:
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=5,
         connect_args={"connect_timeout": 10},
+        **_pg_pool_kw(),
     )
 
 Base = declarative_base()
