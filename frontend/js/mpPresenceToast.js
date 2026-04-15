@@ -2,6 +2,7 @@
  * Someone joined or left — little toast drops from the top.
  */
 import { clearMpChatSession } from "./mpChat.js";
+import { clearMpSeat } from "./mpSeatStorage.js";
 import { playSfxPlayerJoin, playSfxPlayerLeave, playSfxSoloMatchAlarm } from "./sfx.js";
 import { supporterPlainPrefix } from "./supporters.js";
 
@@ -100,6 +101,7 @@ export function navigateToMenuAfterLobbyDissolved(ctx, ws, m) {
     playSfxSoloMatchAlarm();
   }
   clearMpChatSession();
+  clearMpSeat();
   try {
     ws.close();
   } catch {

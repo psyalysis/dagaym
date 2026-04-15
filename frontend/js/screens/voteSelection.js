@@ -4,7 +4,10 @@
 import { authHeadersMultipart } from "../authApi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { notifyMpServerError } from "../errorToast.js";
-import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
+import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
+import { runMpWsReconnect } from "../mpReconnect.js";
+import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
   notifyMpPlayerJoin,
@@ -63,7 +66,6 @@ const VOTE_COLLECT_FALLBACK_S = 30;
 export function mountVoteSelectionScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
 
-  const wsSock = ctx.mpWs;
   const playerId = ctx.playerId ? String(ctx.playerId) : "";
   const lobbyId = ctx.lobbyId;
   const beats = ctx.beats || [];
@@ -120,9 +122,13 @@ export function mountVoteSelectionScreen(root, ctx) {
 
   const targets = beats.filter((b) => b.player_id !== playerId);
 
-  const unmountMpChat =
-    wsSock instanceof WebSocket
-      ? mountMpChat({ ws: wsSock, playerId, continueSession: true })
+  const lid0 = String(lobbyId || "").trim();
+  const pid0 = String(playerId || "").trim();
+  if (lid0 && pid0) saveMpSeat(lid0, pid0);
+
+  let unmountMpChat =
+    ctx.mpWs instanceof WebSocket
+      ? mountMpChat({ ws: ctx.mpWs, getWs: () => ctx.mpWs, playerId, continueSession: true })
       : () => {};
 
   /** @type {ReturnType<typeof normalizeLobbyLike>} */
@@ -183,7 +189,7 @@ export function mountVoteSelectionScreen(root, ctx) {
       preserveWs = true;
       stopResultsPoll();
       ctx.navigate(mountResultsScreen, {
-        mpWs: wsSock,
+        mpWs: ctx.mpWs,
         results: sync.results,
         playerId,
       });
@@ -339,7 +345,7 @@ export function mountVoteSelectionScreen(root, ctx) {
         setVoteCardsLocked(true);
         playSfxMajor();
         try {
-          wsSock.send(JSON.stringify({ type: "vote_cast", target_player_id: tid }));
+          ctx.mpWs.send(JSON.stringify({ type: "vote_cast", target_player_id: tid }));
           const err = root.querySelector("#vote-err");
           if (err) err.textContent = "Vote sent…";
         } catch {
@@ -397,17 +403,22 @@ export function mountVoteSelectionScreen(root, ctx) {
     startDeadlineTick();
   };
 
-  const onMessage = (ev) => {
+  const onMessage = async (ev) => {
     let m;
     try {
       m = JSON.parse(ev.data);
     } catch {
       return;
     }
+    if (m.type === "connected") return;
+    if (m.type === "match_resync") {
+      await applyMatchResyncFromPayload(ctx, m, "vote_selection");
+      return;
+    }
     ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
-      void navigateToMenuAfterLobbyDissolved(ctx, wsSock, m);
+      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
       return;
     }
     notifyMpPlayerJoin(m, playerId);
@@ -424,7 +435,7 @@ export function mountVoteSelectionScreen(root, ctx) {
     if (m.type === "results") {
       preserveWs = true;
       stopResultsPoll();
-      ctx.navigate(mountResultsScreen, { mpWs: wsSock, results: m, playerId });
+      ctx.navigate(mountResultsScreen, { mpWs: ctx.mpWs, results: m, playerId });
       return;
     }
     if (m.type === "votes_timing" && String(m.lobby_id) === String(lobbyId)) {
@@ -447,11 +458,30 @@ export function mountVoteSelectionScreen(root, ctx) {
       syncProgressHint();
     }
   };
-  wsSock.onclose = () => {
+  const onVoteSelectSocketClose = (ev) => {
     if (preserveWs || teardownClose) return;
     showServerRestartingWait();
+    dismissServerRestartingWait();
+    void runMpWsReconnect(ev, {
+      ctx,
+      intentionalLeave: () => teardownClose,
+      preserveWs: () => preserveWs,
+      onReplaceSocket: (nw) => {
+        ctx.mpWs = nw;
+        unmountMpChat();
+        unmountMpChat = mountMpChat({
+          ws: nw,
+          getWs: () => ctx.mpWs,
+          playerId,
+          continueSession: true,
+        });
+        nw.onmessage = onMessage;
+        nw.addEventListener("close", onVoteSelectSocketClose, { once: true });
+      },
+    });
   };
-  wsSock.onmessage = onMessage;
+  ctx.mpWs.addEventListener("close", onVoteSelectSocketClose, { once: true });
+  ctx.mpWs.onmessage = onMessage;
 
   if (Date.now() / 1000 >= unlockAt || slideshowDone) {
     voteUiShown = true;
@@ -470,7 +500,12 @@ export function mountVoteSelectionScreen(root, ctx) {
     root.innerHTML = "";
     if (!preserveWs) {
       try {
-        wsSock.close();
+        ctx.mpWs.removeEventListener("close", onVoteSelectSocketClose);
+      } catch {
+        /* ignore */
+      }
+      try {
+        ctx.mpWs.close();
       } catch {
         /* ignore */
       }

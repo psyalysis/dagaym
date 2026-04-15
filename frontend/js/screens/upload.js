@@ -4,7 +4,10 @@
 import { authHeadersMultipart } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { notifyMpServerError, showAppError } from "../errorToast.js";
-import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
+import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
+import { runMpWsReconnect } from "../mpReconnect.js";
+import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
   notifyMpPlayerJoin,
@@ -27,7 +30,10 @@ import { mountVotingSlideshowScreen } from "./votingSlideshow.js";
 const UPLOAD_WINDOW_SEC = 120;
 
 export function mountUploadScreen(root, ctx) {
-  const ws = ctx.mpWs;
+  if (!ctx.mpWs || ctx.mpWs.readyState !== WebSocket.OPEN) {
+    import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
+    return () => {};
+  }
   const playerId = ctx.playerId;
   const lobbyId = ctx.lobbyId;
   const rawDeadline = ctx.uploadDeadlineTs;
@@ -44,7 +50,16 @@ export function mountUploadScreen(root, ctx) {
   let tickId = null;
 
   mountAuthCornerLeave(ctx);
-  const unmountMpChat = mountMpChat({ ws, playerId, continueSession: true });
+  let unmountMpChat = mountMpChat({
+    ws: ctx.mpWs,
+    getWs: () => ctx.mpWs,
+    playerId,
+    continueSession: true,
+  });
+
+  const lid0 = String(lobbyId || "").trim();
+  const pid0 = String(playerId || "").trim();
+  if (lid0 && pid0) saveMpSeat(lid0, pid0);
 
   root.innerHTML = `
     <div class="screen upload arcade-panel">
@@ -116,7 +131,7 @@ export function mountUploadScreen(root, ctx) {
       const vu = sync.votes_unlock_at;
       const vc = sync.votes_close_at;
       ctx.navigate(mountVotingSlideshowScreen, {
-        mpWs: ws,
+        mpWs: ctx.mpWs,
         playerId,
         lobbyId: ctx.lobbyId,
         beats: Array.isArray(sync.beats) ? sync.beats : [],
@@ -166,17 +181,22 @@ export function mountUploadScreen(root, ctx) {
     }
   });
 
-  const onMessage = (ev) => {
+  const onMessage = async (ev) => {
     let m;
     try {
       m = JSON.parse(ev.data);
     } catch {
       return;
     }
+    if (m.type === "connected") return;
+    if (m.type === "match_resync") {
+      await applyMatchResyncFromPayload(ctx, m, "upload");
+      return;
+    }
     ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
-      void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
+      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
       return;
     }
     notifyMpPlayerJoin(m, playerId);
@@ -204,7 +224,7 @@ export function mountUploadScreen(root, ctx) {
       const vu = m.votes_unlock_at;
       const vc = m.votes_close_at;
       ctx.navigate(mountVotingSlideshowScreen, {
-        mpWs: ws,
+        mpWs: ctx.mpWs,
         playerId,
         lobbyId: ctx.lobbyId,
         beats: m.beats || [],
@@ -218,11 +238,30 @@ export function mountUploadScreen(root, ctx) {
       });
     }
   };
-  ws.onclose = () => {
+  const onUploadSocketClose = (ev) => {
     if (preserveWs || teardownClose) return;
     showServerRestartingWait();
+    dismissServerRestartingWait();
+    void runMpWsReconnect(ev, {
+      ctx,
+      intentionalLeave: () => teardownClose,
+      preserveWs: () => preserveWs,
+      onReplaceSocket: (nw) => {
+        ctx.mpWs = nw;
+        unmountMpChat();
+        unmountMpChat = mountMpChat({
+          ws: nw,
+          getWs: () => ctx.mpWs,
+          playerId,
+          continueSession: true,
+        });
+        nw.onmessage = onMessage;
+        nw.addEventListener("close", onUploadSocketClose, { once: true });
+      },
+    });
   };
-  ws.onmessage = onMessage;
+  ctx.mpWs.addEventListener("close", onUploadSocketClose, { once: true });
+  ctx.mpWs.onmessage = onMessage;
 
   return () => {
     stopPhasePoll();
@@ -235,7 +274,12 @@ export function mountUploadScreen(root, ctx) {
     root.innerHTML = "";
     if (!preserveWs) {
       try {
-        ws.close();
+        ctx.mpWs.removeEventListener("close", onUploadSocketClose);
+      } catch {
+        /* ignore */
+      }
+      try {
+        ctx.mpWs.close();
       } catch {
         /* ignore */
       }

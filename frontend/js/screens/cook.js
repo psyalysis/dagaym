@@ -6,7 +6,10 @@ import { RANK_BASELINE_KEY } from "../rankUi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { notifyMpServerError, showAppError } from "../errorToast.js";
-import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
+import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
+import { runMpWsReconnect } from "../mpReconnect.js";
+import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
   notifyMpPlayerJoin,
@@ -308,7 +311,6 @@ async function buildKitClientSide(root, ctx, start, opts) {
  */
 function setupCookUI(root, ctx, sounds, phaseOpts) {
   phaseOpts?.onBridgeDetach?.();
-  const ws = ctx.mpWs;
   const playerId = ctx.playerId;
   const lobbyId = ctx.lobbyId;
   const cookMin = Number(ctx.cookDurationMin) || 10;
@@ -340,7 +342,12 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
   };
 
   mountAuthCornerLeave(ctx);
-  const unmountMpChat = mountMpChat({ ws, playerId, continueSession: true });
+  let unmountMpChat = mountMpChat({
+    ws: ctx.mpWs,
+    getWs: () => ctx.mpWs,
+    playerId,
+    continueSession: true,
+  });
 
   root.innerHTML = `
     <div class="screen cook arcade-panel">
@@ -515,7 +522,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     setFinishedUi();
     syncProgressHint();
     try {
-      ws.send(JSON.stringify({ type: "cook_finished" }));
+      ctx.mpWs.send(JSON.stringify({ type: "cook_finished" }));
     } catch {
       /* ignore */
     }
@@ -532,17 +539,24 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     downloadOneSound(key, sounds[key]);
   });
 
-  const onMessage = (ev) => {
+  const prevOnClose = ctx.mpWs.onclose;
+
+  const onMessage = async (ev) => {
     let m;
     try {
       m = JSON.parse(ev.data);
     } catch {
       return;
     }
+    if (m.type === "connected") return;
+    if (m.type === "match_resync") {
+      await applyMatchResyncFromPayload(ctx, m, "cook");
+      return;
+    }
     ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
-      void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
+      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
       return;
     }
     notifyMpPlayerJoin(m, playerId);
@@ -571,7 +585,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
       preserveWs = true;
       destroyWaveSurfers();
       ctx.navigate(mountUploadScreen, {
-        mpWs: ws,
+        mpWs: ctx.mpWs,
         playerId,
         lobbyId,
         uploadDeadlineTs: m.upload_deadline_ts,
@@ -579,8 +593,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     }
   };
 
-  const prevOnClose = ws.onclose;
-  ws.onclose = () => {
+  const onCookSocketClose = (ev) => {
     if (!preserveWs) {
       showServerRestartingWait();
     }
@@ -593,9 +606,30 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
         /* ignore */
       }
     }
+    if (preserveWs) return;
+    dismissServerRestartingWait();
+    void runMpWsReconnect(ev, {
+      ctx,
+      intentionalLeave: () => false,
+      preserveWs: () => preserveWs,
+      onReplaceSocket: (nw) => {
+        ctx.mpWs = nw;
+        unmountMpChat();
+        unmountMpChat = mountMpChat({
+          ws: nw,
+          getWs: () => ctx.mpWs,
+          playerId,
+          continueSession: true,
+        });
+        nw.onmessage = onMessage;
+        nw.addEventListener("close", onCookSocketClose, { once: true });
+      },
+    });
   };
 
-  ws.onmessage = onMessage;
+  ctx.mpWs.addEventListener("close", onCookSocketClose, { once: true });
+
+  ctx.mpWs.onmessage = onMessage;
 
   return () => {
     stopLobbySyncPoll();
@@ -604,12 +638,17 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
       clearInterval(localTimerId);
       localTimerId = null;
     }
-    ws.onclose = prevOnClose ?? null;
+    ctx.mpWs.onclose = prevOnClose ?? null;
+    try {
+      ctx.mpWs.removeEventListener("close", onCookSocketClose);
+    } catch {
+      /* ignore */
+    }
     destroyWaveSurfers();
     root.innerHTML = "";
     if (!preserveWs) {
       try {
-        ws.close();
+        ctx.mpWs.close();
       } catch {
         /* ignore */
       }
@@ -624,6 +663,10 @@ export function mountCookScreen(root, ctx) {
     return () => {};
   }
 
+  const lid0 = String(ctx.lobbyId || "").trim();
+  const pid0 = String(ctx.playerId || "").trim();
+  if (lid0 && pid0) saveMpSeat(lid0, pid0);
+
   void fetchMe()
     .then((me) => sessionStorage.setItem(RANK_BASELINE_KEY, String(me.rank_index ?? 0)))
     .catch(() => {});
@@ -634,7 +677,7 @@ export function mountCookScreen(root, ctx) {
   const pending = { lastCookRemainingS: /** @type {number | null} */ null };
   let bridgeActive = true;
 
-  const bridgeOnMessage = (ev) => {
+  const bridgeOnMessage = async (ev) => {
     if (!bridgeActive) return;
     let m;
     try {
@@ -642,10 +685,15 @@ export function mountCookScreen(root, ctx) {
     } catch {
       return;
     }
+    if (m.type === "connected") return;
+    if (m.type === "match_resync") {
+      await applyMatchResyncFromPayload(ctx, m, "cook");
+      return;
+    }
     ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       bridgeActive = false;
-      void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
+      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
       return;
     }
     notifyMpPlayerJoin(m, ctx.playerId);
@@ -664,7 +712,7 @@ export function mountCookScreen(root, ctx) {
       cancelled = true;
       bridgeActive = false;
       ctx.navigate(mountUploadScreen, {
-        mpWs: ws,
+        mpWs: ctx.mpWs,
         playerId: ctx.playerId,
         lobbyId: ctx.lobbyId,
         uploadDeadlineTs: m.upload_deadline_ts,
@@ -672,20 +720,33 @@ export function mountCookScreen(root, ctx) {
     }
   };
 
-  const prevOnClose = ws.onclose;
-  ws.onclose = () => {
+  const bridgePrevOnClose = ctx.mpWs.onclose;
+  const onBridgeSocketClose = (ev) => {
     if (bridgeActive && !cancelled) {
       showServerRestartingWait();
     }
-    if (typeof prevOnClose === "function") {
+    if (typeof bridgePrevOnClose === "function") {
       try {
-        prevOnClose();
+        bridgePrevOnClose();
       } catch {
         /* ignore */
       }
     }
+    if (!bridgeActive || cancelled) return;
+    dismissServerRestartingWait();
+    void runMpWsReconnect(ev, {
+      ctx,
+      intentionalLeave: () => cancelled,
+      preserveWs: () => !bridgeActive,
+      onReplaceSocket: (nw) => {
+        ctx.mpWs = nw;
+        nw.onmessage = bridgeOnMessage;
+        nw.addEventListener("close", onBridgeSocketClose, { once: true });
+      },
+    });
   };
-  ws.onmessage = bridgeOnMessage;
+  ctx.mpWs.addEventListener("close", onBridgeSocketClose, { once: true });
+  ctx.mpWs.onmessage = bridgeOnMessage;
 
   const start = (/** @type {Record<string, string>} */ sounds) => {
     if (cancelled) return;
@@ -725,6 +786,11 @@ export function mountCookScreen(root, ctx) {
     return () => {
       cancelled = true;
       bridgeActive = false;
+      try {
+        ctx.mpWs.removeEventListener("close", onBridgeSocketClose);
+      } catch {
+        /* ignore */
+      }
       innerCleanup();
       root.innerHTML = "";
     };
@@ -734,7 +800,7 @@ export function mountCookScreen(root, ctx) {
     try {
       const meta = await fetchLobbyKitMeta(ctx);
       if (cancelled) return;
-      if (tryNavigatePastCookPhase(ctx, ws, meta)) {
+      if (tryNavigatePastCookPhase(ctx, ctx.mpWs, meta)) {
         cancelled = true;
         bridgeActive = false;
         return;
@@ -755,6 +821,11 @@ export function mountCookScreen(root, ctx) {
   return () => {
     cancelled = true;
     bridgeActive = false;
+    try {
+      ctx.mpWs.removeEventListener("close", onBridgeSocketClose);
+    } catch {
+      /* ignore */
+    }
     innerCleanup();
     root.innerHTML = "";
   };

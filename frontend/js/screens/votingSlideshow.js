@@ -4,7 +4,10 @@
 import { authHeadersMultipart } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { notifyMpServerError } from "../errorToast.js";
-import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
+import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
+import { runMpWsReconnect } from "../mpReconnect.js";
+import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
   notifyMpPlayerJoin,
@@ -135,7 +138,6 @@ async function blobToClippedWav(blob) {
 export function mountVotingSlideshowScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
 
-  const wsSock = ctx.mpWs;
   const playerId = ctx.playerId;
   const lobbyId = ctx.lobbyId;
   const beats = ctx.beats || [];
@@ -160,9 +162,13 @@ export function mountVotingSlideshowScreen(root, ctx) {
   /** @type {string | null} */
   let currentBeatOwnerId = null;
 
-  const unmountMpChat =
-    wsSock instanceof WebSocket
-      ? mountMpChat({ ws: wsSock, playerId, continueSession: true })
+  const lid0 = String(lobbyId || "").trim();
+  const pid0 = String(playerId || "").trim();
+  if (lid0 && pid0) saveMpSeat(lid0, pid0);
+
+  let unmountMpChat =
+    ctx.mpWs instanceof WebSocket
+      ? mountMpChat({ ws: ctx.mpWs, getWs: () => ctx.mpWs, playerId, continueSession: true })
       : () => {};
 
   /** @type {ReturnType<typeof normalizeLobbyLike>} */
@@ -218,7 +224,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
       preserveWs = true;
       stopResultsPoll();
       ctx.navigate(mountResultsScreen, {
-        mpWs: wsSock,
+        mpWs: ctx.mpWs,
         results: sync.results,
         playerId,
       });
@@ -360,7 +366,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
       activeWsur = null;
     }
     try {
-      wsSock.send(JSON.stringify({ type: "slideshow_complete" }));
+      ctx.mpWs.send(JSON.stringify({ type: "slideshow_complete" }));
     } catch {
       /* ignore */
     }
@@ -368,7 +374,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     const wallUnlock =
       votesUnlockWall != null && Number.isFinite(votesUnlockWall) ? votesUnlockWall : nowSec;
     ctx.navigate(mountVoteSelectionScreen, {
-      mpWs: wsSock,
+      mpWs: ctx.mpWs,
       playerId,
       lobbyId: ctx.lobbyId,
       beats,
@@ -523,7 +529,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     if (!target || !reaction) return;
     playSfxMinor();
     try {
-      wsSock.send(
+      ctx.mpWs.send(
         JSON.stringify({
           type: "beat_reaction",
           target_player_id: target,
@@ -544,17 +550,22 @@ export function mountVotingSlideshowScreen(root, ctx) {
   };
   reactionsEl?.addEventListener("click", reactionClick);
 
-  const onSocket = (ev) => {
+  const onSocket = async (ev) => {
     let m;
     try {
       m = JSON.parse(ev.data);
     } catch {
       return;
     }
+    if (m.type === "connected") return;
+    if (m.type === "match_resync") {
+      await applyMatchResyncFromPayload(ctx, m, "voting_slideshow");
+      return;
+    }
     ingestMpChatMessage(m);
     if (m.type === "lobby_dissolved") {
       preserveWs = true;
-      void navigateToMenuAfterLobbyDissolved(ctx, wsSock, m);
+      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
       return;
     }
     notifyMpPlayerJoin(m, playerId);
@@ -572,7 +583,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
       preserveWs = true;
       stopResultsPoll();
       ctx.navigate(mountResultsScreen, {
-        mpWs: wsSock,
+        mpWs: ctx.mpWs,
         results: m,
         playerId,
       });
@@ -597,11 +608,30 @@ export function mountVotingSlideshowScreen(root, ctx) {
       syncProgressHint();
     }
   };
-  wsSock.onclose = () => {
+  const onVoteSlideSocketClose = (ev) => {
     if (preserveWs || teardownClose) return;
     showServerRestartingWait();
+    dismissServerRestartingWait();
+    void runMpWsReconnect(ev, {
+      ctx,
+      intentionalLeave: () => teardownClose,
+      preserveWs: () => preserveWs,
+      onReplaceSocket: (nw) => {
+        ctx.mpWs = nw;
+        unmountMpChat();
+        unmountMpChat = mountMpChat({
+          ws: nw,
+          getWs: () => ctx.mpWs,
+          playerId,
+          continueSession: true,
+        });
+        nw.onmessage = onSocket;
+        nw.addEventListener("close", onVoteSlideSocketClose, { once: true });
+      },
+    });
   };
-  wsSock.onmessage = onSocket;
+  ctx.mpWs.addEventListener("close", onVoteSlideSocketClose, { once: true });
+  ctx.mpWs.onmessage = onSocket;
 
   if (beats.length === 0) {
     goVote();
@@ -635,7 +665,12 @@ export function mountVotingSlideshowScreen(root, ctx) {
     root.innerHTML = "";
     if (!preserveWs) {
       try {
-        wsSock.close();
+        ctx.mpWs.removeEventListener("close", onVoteSlideSocketClose);
+      } catch {
+        /* ignore */
+      }
+      try {
+        ctx.mpWs.close();
       } catch {
         /* ignore */
       }

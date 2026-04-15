@@ -727,6 +727,31 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   margin: 0 auto;
 }
 
+.mp-reconnect-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%) translateY(120%);
+  z-index: 118;
+  max-width: min(92vw, 22rem);
+  padding: 0.45rem 1rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  background: rgba(14, 12, 10, 0.96);
+  border: 1px solid rgba(255, 200, 120, 0.28);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+}
+
+.mp-reconnect-banner--visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
 .credits-overlay {
   position: fixed;
   inset: 0;

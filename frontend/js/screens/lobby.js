@@ -2,7 +2,10 @@
  * Pre-game room: roster, ready up, host starts → cook.
  */
 import { notifyMpServerError } from "../errorToast.js";
-import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import { dismissServerRestartingWait } from "../serverRestartOverlay.js";
+import { applyMatchResyncFromPayload, mergeMatchResyncIntoLobby } from "../mpMatchResync.js";
+import { runMpWsReconnect } from "../mpReconnect.js";
+import { clearMpSeat, saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
   notifyMpPlayerJoin,
@@ -138,7 +141,7 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
 }
 
 export function mountLobbyScreen(root, ctx) {
-  const ws = ctx.mpWs;
+  let ws = ctx.mpWs;
   const playerId = ctx.playerId;
   let lobby = ctx.lobby;
   /** @type {null | { step?: number; total?: number; message?: string; percent?: number }} */
@@ -158,13 +161,22 @@ export function mountLobbyScreen(root, ctx) {
   }
 
   mountAuthCornerLeave(ctx);
-  const unmountMpChat = mountMpChat({ ws, playerId });
+  let unmountMpChat = mountMpChat({ ws, getWs: () => ctx.mpWs, playerId });
 
-  const onMessage = (ev) => {
+  const onMessage = async (ev) => {
     let m;
     try {
       m = JSON.parse(ev.data);
     } catch {
+      return;
+    }
+    if (m.type === "connected") return;
+    if (m.type === "match_resync") {
+      const nav = await applyMatchResyncFromPayload(ctx, m, "lobby");
+      if (!nav) {
+        lobby = mergeMatchResyncIntoLobby(m, lobby);
+        paint();
+      }
       return;
     }
     ingestMpChatMessage(m);
@@ -176,10 +188,11 @@ export function mountLobbyScreen(root, ctx) {
     notifyMpPlayerLeave(m, playerId);
     if (m.type === "kicked_from_lobby") {
       intentionalLeave = true;
+      clearMpSeat();
       showKickedFromMatchToast();
       clearMpChatSession();
       try {
-        ws.close();
+        ctx.mpWs.close();
       } catch {
         /* ignore */
       }
@@ -188,6 +201,8 @@ export function mountLobbyScreen(root, ctx) {
     }
     if (m.type === "lobby_update" && m.lobby) {
       lobby = m.lobby;
+      const lid = String(m.lobby.lobby_id || "").trim();
+      if (lid) saveMpSeat(lid, String(playerId));
       if (m.lobby.state !== "generating") kitProgress = null;
       paint();
     }
@@ -204,14 +219,16 @@ export function mountLobbyScreen(root, ctx) {
     }
     if (m.type === "lobby_dissolved") {
       intentionalLeave = true;
-      void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
+      clearMpSeat();
+      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
       return;
     }
     if (m.type === "start_game") {
       playSfxBeatBattle();
       preserveWs = true;
+      if (m.lobby_id) saveMpSeat(String(m.lobby_id), String(playerId));
       ctx.navigate(mountCookScreen, {
-        mpWs: ws,
+        mpWs: ctx.mpWs,
         playerId,
         lobbyId: m.lobby_id,
         seed: m.seed,
@@ -222,11 +239,30 @@ export function mountLobbyScreen(root, ctx) {
     }
   };
 
-  ws.onclose = () => {
-    if (preserveWs || intentionalLeave) return;
-    showServerRestartingWait();
-    import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
+  const attachReconnectClose = (sock) => {
+    sock.addEventListener(
+      "close",
+      (ev) => {
+        if (preserveWs || intentionalLeave) return;
+        dismissServerRestartingWait();
+        void runMpWsReconnect(ev, {
+          ctx,
+          intentionalLeave: () => intentionalLeave,
+          preserveWs: () => preserveWs,
+          onReplaceSocket: (nw) => {
+            ws = nw;
+            ctx.mpWs = nw;
+            unmountMpChat();
+            unmountMpChat = mountMpChat({ ws: nw, getWs: () => ctx.mpWs, playerId, continueSession: true });
+            nw.onmessage = onMessage;
+            attachReconnectClose(nw);
+          },
+        });
+      },
+      { once: true },
+    );
   };
+  attachReconnectClose(ws);
 
   ws.onmessage = onMessage;
 
@@ -234,14 +270,14 @@ export function mountLobbyScreen(root, ctx) {
     const t = e.target;
     if (t instanceof HTMLInputElement && t.id === "lobby-anonymous-voting") {
       playSfxMinor();
-      if (ws.readyState !== WebSocket.OPEN) {
+      if (ctx.mpWs.readyState !== WebSocket.OPEN) {
         const err = errEl();
         if (err) err.textContent = "Not connected.";
         t.checked = !t.checked;
         return;
       }
       try {
-        ws.send(
+        ctx.mpWs.send(
           JSON.stringify({
             type: "set_anonymous_voting",
             anonymous_voting: t.checked,
@@ -254,13 +290,13 @@ export function mountLobbyScreen(root, ctx) {
     }
     if (!(t instanceof HTMLSelectElement) || t.id !== "cook-duration-select") return;
     playSfxMinor();
-    if (ws.readyState !== WebSocket.OPEN) {
+    if (ctx.mpWs.readyState !== WebSocket.OPEN) {
       const err = errEl();
       if (err) err.textContent = "Not connected.";
       return;
     }
     try {
-      ws.send(
+      ctx.mpWs.send(
         JSON.stringify({
           type: "set_cook_duration",
           minutes: parseInt(t.value, 10),
@@ -279,13 +315,13 @@ export function mountLobbyScreen(root, ctx) {
       const tid = kickBtn.dataset.kickId;
       if (!tid) return;
       playSfxMinor();
-      if (ws.readyState !== WebSocket.OPEN) {
+      if (ctx.mpWs.readyState !== WebSocket.OPEN) {
         const err = errEl();
         if (err) err.textContent = "Not connected.";
         return;
       }
       try {
-        ws.send(JSON.stringify({ type: "kick_player", target_player_id: tid }));
+        ctx.mpWs.send(JSON.stringify({ type: "kick_player", target_player_id: tid }));
       } catch {
         /* ignore */
       }
@@ -299,13 +335,13 @@ export function mountLobbyScreen(root, ctx) {
       if (pl.some((p) => String(p.id) === String(playerId) && p.ready)) return;
       if (/** @type {HTMLButtonElement} */ (btn).disabled) return;
       playSfxMajor();
-      if (ws.readyState !== WebSocket.OPEN) {
+      if (ctx.mpWs.readyState !== WebSocket.OPEN) {
         const err = errEl();
         if (err) err.textContent = "Not connected. Leave and rejoin.";
         return;
       }
       try {
-        ws.send(JSON.stringify({ type: "player_ready" }));
+        ctx.mpWs.send(JSON.stringify({ type: "player_ready" }));
       } catch {
         /* keep button usable — lobby state unchanged */
       }
@@ -316,8 +352,16 @@ export function mountLobbyScreen(root, ctx) {
       playSfxMinor();
       intentionalLeave = true;
       clearMpChatSession();
+      clearMpSeat();
       try {
-        ws.close();
+        if (ctx.mpWs.readyState === WebSocket.OPEN) {
+          ctx.mpWs.send(JSON.stringify({ type: "leave_lobby" }));
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
+        ctx.mpWs.close();
       } catch {
         /* ignore */
       }
@@ -335,6 +379,9 @@ export function mountLobbyScreen(root, ctx) {
   root.addEventListener("change", changeHandler);
   root.addEventListener("toggle", toggleHandler);
 
+  const initialLid = String(lobby?.lobby_id || "").trim();
+  if (initialLid) saveMpSeat(initialLid, String(playerId));
+
   paint();
 
   return () => {
@@ -347,10 +394,9 @@ export function mountLobbyScreen(root, ctx) {
     root.removeEventListener("change", changeHandler);
     root.removeEventListener("toggle", toggleHandler);
     root.innerHTML = "";
-    ws.onclose = null;
     if (!preserveWs) {
       try {
-        ws.close();
+        ctx.mpWs.close();
       } catch {
         /* ignore */
       }

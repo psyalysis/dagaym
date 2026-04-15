@@ -1,6 +1,7 @@
 """
 WebSocket /ws — JSON messages routed through LobbyManager.
 Requires ?token=<JWT> (browser WebSockets cannot send Authorization headers).
+Optional ?resume_player_id=<id> to reclaim a seat after a soft disconnect.
 """
 
 from __future__ import annotations
@@ -56,11 +57,40 @@ async def multiplayer_ws(websocket: WebSocket) -> None:
 
     user_id, username = auth
     manager = get_manager(websocket)
-    player_id = secrets.token_urlsafe(12)
-    manager.register_auth_session(player_id, user_id, username)
-    manager.attach_ws(player_id, websocket)
-    await websocket.send_json({"type": "connected", "player_id": player_id})
+
+    resume_raw = websocket.query_params.get("resume_player_id") or websocket.query_params.get(
+        "resumePlayerId"
+    )
+    resume_id = str(resume_raw).strip() if resume_raw else ""
+
+    player_id: str | None = None
     try:
+        if resume_id:
+            ok, resume_reason = await manager.try_resume_player(
+                user_id, username, resume_id, websocket
+            )
+            if not ok:
+                _log_ws(
+                    "ws_resume_failed",
+                    reason=resume_reason,
+                    client_host=client_host,
+                    resume_player_id=resume_id,
+                )
+                await websocket.close(code=4404)
+                return
+            player_id = resume_id
+        else:
+            player_id = secrets.token_urlsafe(12)
+            manager.register_auth_session(player_id, user_id, username)
+            manager.attach_ws(player_id, websocket)
+
+        await websocket.send_json(
+            {"type": "connected", "player_id": player_id, "resumed": bool(resume_id)}
+        )
+        if resume_id:
+            await manager.send_match_resync_to_player(player_id)
+
+        assert player_id is not None
         while True:
             raw = await websocket.receive_text()
             byte_len = len(raw.encode("utf-8"))
@@ -134,5 +164,6 @@ async def multiplayer_ws(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        _MSG_LIMIT.forget(player_id)
-        await manager.disconnect(player_id)
+        if player_id is not None:
+            _MSG_LIMIT.forget(player_id)
+            await manager.detach_connection(player_id, websocket)

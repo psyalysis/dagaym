@@ -5,7 +5,10 @@ import { authHeadersMultipart, fetchMe } from "../authApi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { RANK_BASELINE_KEY, RANK_PENDING_KEY } from "../rankUi.js";
-import { showServerRestartingWait } from "../serverRestartOverlay.js";
+import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
+import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
+import { runMpWsReconnect } from "../mpReconnect.js";
+import { clearMpSeat, saveMpSeat } from "../mpSeatStorage.js";
 import {
   clearMpChatSession,
   ingestMpChatMessage,
@@ -63,7 +66,6 @@ function escapeHtml(s) {
 export function mountResultsScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
 
-  const wsSock = ctx.mpWs;
   /** Intentional socket close — skip the "server restarting" overlay. */
   let teardownClose = false;
   const r = ctx.results || {};
@@ -71,6 +73,8 @@ export function mountResultsScreen(root, ctx) {
   const board = r.leaderboard || [];
   const beats = Array.isArray(r.beats) ? r.beats : [];
   const playerId = ctx.playerId ? String(ctx.playerId) : "";
+  const lobbyIdForSeat = String(r.lobby_id || ctx.lobbyId || "").trim();
+  if (lobbyIdForSeat && playerId) saveMpSeat(lobbyIdForSeat, playerId);
   const apiBase = getApiBase();
   const noWinnerTwoPlayers = r.no_winner_two_players === true;
   const participants = Array.isArray(r.participants) ? r.participants : [];
@@ -115,7 +119,7 @@ export function mountResultsScreen(root, ctx) {
         ? `<p class="arcade-hint results-beats-miss">Sign in required to replay beats.</p>`
         : "";
 
-  const showRematch = participants.length > 0 && wsSock instanceof WebSocket;
+  const showRematch = participants.length > 0 && ctx.mpWs instanceof WebSocket;
   const resultsHeadRow = showRematch
     ? `<div class="mp-panel-head results-panel-head" aria-label="Results and rematch">
         <h2 class="arcade-heading mp-panel-head-title">RESULTS</h2>
@@ -262,64 +266,91 @@ export function mountResultsScreen(root, ctx) {
     });
   }
 
-  const unmountMpChat =
-    wsSock instanceof WebSocket
-      ? mountMpChat({ ws: wsSock, playerId, continueSession: true })
+  let unmountMpChat =
+    ctx.mpWs instanceof WebSocket
+      ? mountMpChat({ ws: ctx.mpWs, getWs: () => ctx.mpWs, playerId, continueSession: true })
       : () => {};
 
-  if (wsSock instanceof WebSocket) {
-    wsSock.onmessage = (ev) => {
-      let m;
-      try {
-        m = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
-      ingestMpChatMessage(m);
-      notifyRematchWant(m, playerId);
-      if (m.type === "player_leave" && m.player_id != null) {
-        const gone = String(m.player_id);
-        rematchPlayers = rematchPlayers.filter((p) => p.id !== gone);
-        rematchVoted.delete(gone);
-        syncRematchHint();
-      }
-      if (m.type === "rematch_vote_update" && Array.isArray(m.voted_player_ids)) {
-        rematchVoted.clear();
-        for (const id of m.voted_player_ids) rematchVoted.add(String(id));
-        syncRematchHint();
-      }
-      if (m.type === "lobby_dissolved") {
-        preserveWs = true;
-        void navigateToMenuAfterLobbyDissolved(ctx, wsSock, m);
-        return;
-      }
-      if (m.type === "lobby_update" && m.lobby && m.lobby.state === "lobby") {
-        preserveWs = true;
-        import("./lobby.js").then((mod) => {
-          ctx.navigate(mod.mountLobbyScreen, {
-            mpWs: wsSock,
-            playerId,
-            lobby: m.lobby,
-          });
+  const onResultsSocketMessage = async (ev) => {
+    let m;
+    try {
+      m = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
+    if (m.type === "connected") return;
+    if (m.type === "match_resync") {
+      await applyMatchResyncFromPayload(ctx, m, "results");
+      return;
+    }
+    ingestMpChatMessage(m);
+    notifyRematchWant(m, playerId);
+    if (m.type === "player_leave" && m.player_id != null) {
+      const gone = String(m.player_id);
+      rematchPlayers = rematchPlayers.filter((p) => p.id !== gone);
+      rematchVoted.delete(gone);
+      syncRematchHint();
+    }
+    if (m.type === "rematch_vote_update" && Array.isArray(m.voted_player_ids)) {
+      rematchVoted.clear();
+      for (const id of m.voted_player_ids) rematchVoted.add(String(id));
+      syncRematchHint();
+    }
+    if (m.type === "lobby_dissolved") {
+      preserveWs = true;
+      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
+      return;
+    }
+    if (m.type === "lobby_update" && m.lobby && m.lobby.state === "lobby") {
+      preserveWs = true;
+      import("./lobby.js").then((mod) => {
+        ctx.navigate(mod.mountLobbyScreen, {
+          mpWs: ctx.mpWs,
+          playerId,
+          lobby: m.lobby,
         });
-        return;
-      }
-      if (m.type === "error") {
-        mpChatHandleErrorPayload(m);
-      }
-    };
-    wsSock.onclose = () => {
-      if (teardownClose || preserveWs) return;
-      showServerRestartingWait();
-    };
+      });
+      return;
+    }
+    if (m.type === "error") {
+      mpChatHandleErrorPayload(m);
+    }
+  };
+
+  const onResultsSocketClose = (ev) => {
+    if (teardownClose || preserveWs) return;
+    showServerRestartingWait();
+    dismissServerRestartingWait();
+    void runMpWsReconnect(ev, {
+      ctx,
+      intentionalLeave: () => teardownClose,
+      preserveWs: () => preserveWs,
+      onReplaceSocket: (nw) => {
+        ctx.mpWs = nw;
+        unmountMpChat();
+        unmountMpChat = mountMpChat({
+          ws: nw,
+          getWs: () => ctx.mpWs,
+          playerId,
+          continueSession: true,
+        });
+        nw.onmessage = onResultsSocketMessage;
+        nw.addEventListener("close", onResultsSocketClose, { once: true });
+      },
+    });
+  };
+
+  if (ctx.mpWs instanceof WebSocket) {
+    ctx.mpWs.addEventListener("close", onResultsSocketClose, { once: true });
+    ctx.mpWs.onmessage = onResultsSocketMessage;
   }
 
   root.querySelector("#results-rematch-btn")?.addEventListener("click", () => {
-    if (!(wsSock instanceof WebSocket) || wsSock.readyState !== WebSocket.OPEN) return;
+    if (!(ctx.mpWs instanceof WebSocket) || ctx.mpWs.readyState !== WebSocket.OPEN) return;
     if (playerId && rematchVoted.has(playerId)) return;
     playSfxMinor();
     try {
-      wsSock.send(JSON.stringify({ type: "rematch_vote" }));
+      ctx.mpWs.send(JSON.stringify({ type: "rematch_vote" }));
     } catch {
       /* ignore */
     }
@@ -329,8 +360,16 @@ export function mountResultsScreen(root, ctx) {
     playSfxMinor();
     teardownClose = true;
     clearMpChatSession();
+    clearMpSeat();
     try {
-      wsSock?.close();
+      if (ctx.mpWs instanceof WebSocket && ctx.mpWs.readyState === WebSocket.OPEN) {
+        ctx.mpWs.send(JSON.stringify({ type: "leave_lobby" }));
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      ctx.mpWs?.close();
     } catch {
       /* ignore */
     }
@@ -365,7 +404,12 @@ export function mountResultsScreen(root, ctx) {
     if (!preserveWs) {
       teardownClose = true;
       try {
-        wsSock?.close();
+        ctx.mpWs.removeEventListener("close", onResultsSocketClose);
+      } catch {
+        /* ignore */
+      }
+      try {
+        ctx.mpWs?.close();
       } catch {
         /* ignore */
       }

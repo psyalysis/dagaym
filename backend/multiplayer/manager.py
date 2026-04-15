@@ -26,6 +26,7 @@ from .lobby import (
     COOK_DURATION_S,
     LOBBY_RESULTS_TTL_S,
     MAX_LOBBY_PLAYERS,
+    MP_WS_GRACE_S,
     SLIDESHOW_SEGMENT_S,
     UPLOAD_PHASE_S,
     VOTING_COLLECT_S,
@@ -146,6 +147,31 @@ class LobbyManager:
         self._cook_tasks: dict[str, asyncio.Task[None]] = {}
         self._upload_tasks: dict[str, asyncio.Task[None]] = {}
         self._vote_tasks: dict[str, asyncio.Task[None]] = {}
+        # Soft-disconnect: remove seat after grace unless the client resumes.
+        self._grace_tasks: dict[str, asyncio.Task[None]] = {}
+
+    def _cancel_grace(self, player_id: str) -> None:
+        t = self._grace_tasks.pop(player_id, None)
+        if t is not None and not t.done():
+            t.cancel()
+
+    def _schedule_grace_remove(self, player_id: str) -> None:
+        self._cancel_grace(player_id)
+
+        async def _grace_wait() -> None:
+            try:
+                await asyncio.sleep(MP_WS_GRACE_S)
+            except asyncio.CancelledError:
+                return
+            self._grace_tasks.pop(player_id, None)
+            async with self._lock:
+                if player_id not in self.player_lobby:
+                    return
+                if self.player_ws.get(player_id) is not None:
+                    return
+            await self.remove_player_from_lobby(player_id)
+
+        self._grace_tasks[player_id] = asyncio.create_task(_grace_wait())
 
     def register_auth_session(self, player_id: str, user_id: int, username: str) -> None:
         self.auth_user_id[player_id] = user_id
@@ -336,11 +362,56 @@ class LobbyManager:
                 out[key] = snap[key]
         return out
 
+    def detach_ws_if_current(self, player_id: str, ws: WebSocket) -> bool:
+        cur = self.player_ws.get(player_id)
+        if cur is ws:
+            self.player_ws.pop(player_id, None)
+            return True
+        return False
+
     def attach_ws(self, player_id: str, ws: WebSocket) -> None:
+        self._cancel_grace(player_id)
         self.player_ws[player_id] = ws
 
     def detach_ws(self, player_id: str) -> None:
         self.player_ws.pop(player_id, None)
+
+    async def try_resume_player(
+        self, user_id: int, username: str, resume_player_id: str, websocket: WebSocket
+    ) -> tuple[bool, str | None]:
+        """Reclaim an existing seat after a soft disconnect. Closes a prior tab's socket if any."""
+        resume_player_id = resume_player_id.strip()
+        if not resume_player_id:
+            return False, "empty"
+        async with self._lock:
+            lobby_id = self.player_lobby.get(resume_player_id)
+            if lobby_id is None:
+                return False, "not_in_lobby"
+            if not self.verify_player_belongs_to_user(lobby_id, resume_player_id, user_id):
+                return False, "wrong_user"
+        self.register_auth_session(resume_player_id, user_id, username)
+        old_ws = self.player_ws.get(resume_player_id)
+        self._cancel_grace(resume_player_id)
+        self.player_ws[resume_player_id] = websocket
+        if old_ws is not None and old_ws is not websocket:
+            try:
+                await old_ws.close(code=4400)
+            except Exception:
+                pass
+        return True, None
+
+    async def send_match_resync_to_player(self, player_id: str) -> None:
+        sess = self._session_user(player_id)
+        if sess is None:
+            return
+        user_id, _ = sess
+        lobby_id = self.player_lobby.get(player_id)
+        if lobby_id is None:
+            return
+        sync = self.get_match_sync_for_user(lobby_id, user_id)
+        if sync is None:
+            return
+        await self.send_to(player_id, {"type": "match_resync", **sync})
 
     async def send_to(self, player_id: str, message: dict[str, Any]) -> None:
         ws = self.player_ws.get(player_id)
@@ -1309,7 +1380,21 @@ class LobbyManager:
         if all_voted:
             await self._rematch_to_new_lobby(lobby_id)
 
-    async def disconnect(self, player_id: str) -> None:
+    async def detach_connection(self, player_id: str, closed_ws: WebSocket) -> None:
+        """Socket closed: drop transport, keep lobby seat until grace or explicit leave."""
+        if not self.detach_ws_if_current(player_id, closed_ws):
+            return
+        async with self._lock:
+            in_lobby = player_id in self.player_lobby
+        if not in_lobby:
+            self._cancel_grace(player_id)
+            self.pop_auth_session(player_id)
+            return
+        self._schedule_grace_remove(player_id)
+
+    async def remove_player_from_lobby(self, player_id: str) -> None:
+        """Hard leave: remove seat, auth, and run match cleanup (kick, grace expiry, leave_lobby)."""
+        self._cancel_grace(player_id)
         lobby_id: str | None = None
         left_count = 0
         left_name = ""
@@ -1418,6 +1503,10 @@ class LobbyManager:
         if snap is not None:
             await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
 
+    async def disconnect(self, player_id: str) -> None:
+        """Full removal (kick, tests, legacy callers)."""
+        await self.remove_player_from_lobby(player_id)
+
     async def _dissolve_lobby(self, lobby_id: str) -> None:
         async with self._lock:
             lobby = self.lobbies.pop(lobby_id, None)
@@ -1427,6 +1516,8 @@ class LobbyManager:
             for pid in pids:
                 self.player_lobby.pop(pid, None)
 
+        for pid in pids:
+            self._cancel_grace(pid)
         for pid in pids:
             await self.send_to(
                 pid,
@@ -1446,6 +1537,8 @@ class LobbyManager:
                 self.player_lobby.pop(pid, None)
 
         for pid in pids:
+            self._cancel_grace(pid)
+        for pid in pids:
             await self.send_to(
                 pid,
                 {"type": "lobby_dissolved", "reason": "not_enough_players"},
@@ -1463,6 +1556,8 @@ class LobbyManager:
             for pid in pids:
                 self.player_lobby.pop(pid, None)
 
+        for pid in pids:
+            self._cancel_grace(pid)
         for pid in pids:
             await self.send_to(
                 pid,
@@ -1492,6 +1587,8 @@ class LobbyManager:
                 for pid in old.players:
                     self.player_lobby.pop(pid, None)
         if old:
+            for pid in old.players:
+                self._cancel_grace(pid)
             for pid in old.players:
                 self.pop_auth_session(pid)
 
@@ -1575,6 +1672,8 @@ class LobbyManager:
                 )
         elif t == "player_ready":
             await self.player_ready(player_id)
+        elif t == "leave_lobby":
+            await self.remove_player_from_lobby(player_id)
         elif t == "kick_player":
             await self.kick_player(player_id, data.get("target_player_id"))
         elif t == "set_cook_duration":

@@ -132,11 +132,12 @@ function renderLogEl(logEl) {
 
 /**
  * Drop the chat UI on the screen; cleanup fn tears it down.
- * @param {{ ws: WebSocket, playerId: string, continueSession?: boolean }} opts
+ * @param {{ ws: WebSocket, getWs?: () => WebSocket, playerId: string, continueSession?: boolean }} opts
  * @returns {() => void}
  */
-export function mountMpChat({ ws, playerId, continueSession = false }) {
+export function mountMpChat({ ws, getWs, playerId, continueSession = false }) {
   void playerId;
+  const activeWs = typeof getWs === "function" ? getWs : () => ws;
   if (!continueSession) {
     clearMpChatSession();
   }
@@ -234,7 +235,8 @@ export function mountMpChat({ ws, playerId, continueSession = false }) {
 
   const trySendText = () => {
     showErr("");
-    if (!(input instanceof HTMLInputElement) || ws.readyState !== WebSocket.OPEN) return;
+    const sock = activeWs();
+    if (!(input instanceof HTMLInputElement) || sock.readyState !== WebSocket.OPEN) return;
     const t = input.value.trim();
     if (!t) return;
     if (t.length > MAX_LEN) {
@@ -248,7 +250,7 @@ export function mountMpChat({ ws, playerId, continueSession = false }) {
     if (Date.now() < outgoingCooldownUntil) return;
     playSfxMinor();
     try {
-      ws.send(JSON.stringify({ type: "mp_chat", text: t }));
+      sock.send(JSON.stringify({ type: "mp_chat", text: t }));
       input.value = "";
       startCooldown();
     } catch {
@@ -272,12 +274,13 @@ export function mountMpChat({ ws, playerId, continueSession = false }) {
     const btn = t instanceof Element ? t.closest("[data-mp-chat-emoji]") : null;
     if (!(btn instanceof HTMLButtonElement)) return;
     const key = btn.dataset.mpChatEmoji;
-    if (!key || ws.readyState !== WebSocket.OPEN) return;
+    const sock = activeWs();
+    if (!key || sock.readyState !== WebSocket.OPEN) return;
     if (Date.now() < outgoingCooldownUntil) return;
     showErr("");
     playSfxMinor();
     try {
-      ws.send(JSON.stringify({ type: "mp_chat", emoji: key }));
+      sock.send(JSON.stringify({ type: "mp_chat", emoji: key }));
       startCooldown();
     } catch {
       showErr("Could not send.");

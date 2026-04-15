@@ -3,6 +3,12 @@ Beat Battle — Solo ``/generate``, multiplayer WebSocket, beat upload, static f
 
 Run from project root: ``uvicorn backend.main:app --reload --port 8000``
 Then open http://127.0.0.1:8000/
+
+Multiplayer WebSocket (``/ws``) behind a reverse proxy: idle proxies often drop
+connections near 60s. Prefer native WS ping from uvicorn, e.g.
+``uvicorn backend.main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 25 --ws-ping-timeout 120``.
+For nginx, raise ``proxy_read_timeout`` / ``proxy_send_timeout`` above the ping interval
+(see ``proxy_http_version 1.1`` and ``Upgrade`` / ``Connection`` headers for WebSockets).
 """
 
 from __future__ import annotations

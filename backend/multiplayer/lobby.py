@@ -39,6 +39,9 @@ VOTING_COLLECT_S = 30
 # Lobbies in results older than this are purged (uploads deleted).
 LOBBY_RESULTS_TTL_S = 3600
 
+# After a WebSocket closes, keep the seat this long so the client can resume.
+MP_WS_GRACE_S = 90.0
+
 # Fixed lobby capacity (join cap + server browser).
 MAX_LOBBY_PLAYERS = 10
 
