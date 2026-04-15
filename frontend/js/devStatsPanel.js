@@ -39,7 +39,7 @@ function wireSlashToggle() {
 }
 
 function isDevUsername() {
-  const u = getUsername().trim().toLowerCase();
+  const u = getUsername().trim();
   return Boolean(u && ALLOWED.has(u));
 }
 

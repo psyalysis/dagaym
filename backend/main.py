@@ -72,11 +72,12 @@ def _index_html_response() -> HTMLResponse:
 
 MAX_BEAT_BYTES = 30 * 1024 * 1024
 
+# Must match the stored username exactly (case-sensitive); do not compare with .lower().
 _ALLOWED_DEV_STATS_USERS = frozenset({"psyalysis", "polystalgia"})
 
 
 def _require_dev_stats_user(user: User) -> None:
-    if user.username.lower() not in _ALLOWED_DEV_STATS_USERS:
+    if user.username not in _ALLOWED_DEV_STATS_USERS:
         raise HTTPException(status_code=403, detail="Not allowed.")
 
 

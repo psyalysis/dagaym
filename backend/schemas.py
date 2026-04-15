@@ -8,7 +8,7 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
-USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+USERNAME_PATTERN = re.compile(r"^[a-z0-9_]{3,20}$")
 
 
 class RegisterRequest(BaseModel):
@@ -18,8 +18,11 @@ class RegisterRequest(BaseModel):
     @field_validator("username")
     @classmethod
     def username_chars(cls, v: str) -> str:
+        v = v.strip()
         if not USERNAME_PATTERN.match(v):
-            raise ValueError("Username must be 3–20 characters: letters, numbers, underscores only.")
+            raise ValueError(
+                "Username must be 3–20 characters: lowercase letters, numbers, underscores only."
+            )
         return v
 
 

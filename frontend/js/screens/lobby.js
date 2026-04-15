@@ -26,12 +26,14 @@ import { mountCookScreen } from "./cook.js";
  * @param {object} lobby
  * @param {string} selfId
  * @param {null | { step?: number; total?: number; message?: string; percent?: number }} kitProgress
+ * @param {boolean} settingsPanelOpen
  */
-function renderLobby(root, lobby, selfId, kitProgress) {
+function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
   const players = lobby.players || [];
   const hostId = lobby.host_id || "";
   const isHost = Boolean(selfId && hostId && selfId === hostId);
   const cookMin = Number(lobby.cook_duration_min) || 10;
+  const anonymousVoting = Boolean(lobby.anonymous_voting);
   const generating = lobby.state === "generating" || kitProgress != null;
   const pct = generating ? Math.min(100, Number(kitProgress?.percent) || 0) : 0;
   const kitMsg = kitProgress?.message || "Preparing kit…";
@@ -72,26 +74,41 @@ function renderLobby(root, lobby, selfId, kitProgress) {
 
   const selfReady = Boolean(selfId && players.some((p) => String(p.id) === String(selfId) && p.ready));
 
-  const hostDuration = isHost
-    ? `
-    <div class="host-cook-duration">
-      <label class="arcade-label" for="cook-duration-select">Cook time (host)</label>
-      <select id="cook-duration-select" class="arcade-select" aria-label="Cook duration in minutes">
-        <option value="5"${cookMin === 5 ? " selected" : ""}>5 min</option>
-        <option value="10"${cookMin === 10 ? " selected" : ""}>10 min</option>
-        <option value="15"${cookMin === 15 ? " selected" : ""}>15 min</option>
-        <option value="20"${cookMin === 20 ? " selected" : ""}>20 min</option>
-        <option value="30"${cookMin === 30 ? " selected" : ""}>30 min</option>
-      </select>
-    </div>
+  const hostSettings =
+    isHost && !generating
+      ? `
+    <details class="lobby-settings"${settingsPanelOpen ? " open" : ""}>
+      <summary class="lobby-settings-summary">
+        <span>Lobby settings</span>
+        <span class="lobby-settings-chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="lobby-settings-body">
+        <div class="lobby-settings-field">
+          <label class="arcade-label lobby-settings-label" for="cook-duration-select">Cook time</label>
+          <select id="cook-duration-select" class="arcade-select lobby-settings-select" aria-label="Cook duration in minutes">
+            <option value="5"${cookMin === 5 ? " selected" : ""}>5 min</option>
+            <option value="10"${cookMin === 10 ? " selected" : ""}>10 min</option>
+            <option value="15"${cookMin === 15 ? " selected" : ""}>15 min</option>
+            <option value="20"${cookMin === 20 ? " selected" : ""}>20 min</option>
+            <option value="30"${cookMin === 30 ? " selected" : ""}>30 min</option>
+          </select>
+        </div>
+        <label class="lobby-settings-toggle">
+          <input type="checkbox" id="lobby-anonymous-voting"${anonymousVoting ? " checked" : ""} />
+          <span class="lobby-settings-toggle-text">Anonymous voting</span>
+        </label>
+      </div>
+    </details>
   `
-    : "";
+      : "";
 
   root.innerHTML = `
     <div class="screen lobby arcade-panel">
       <h2 class="arcade-heading">LOBBY <span class="lobby-id">${escapeHtml(lobby.lobby_id || "")}</span></h2>
-      <p class="arcade-hint">Spice ${lobby.spice} · ${lobby.is_public ? "Public" : "Code only"} · min 2 players · all ready · cook ${cookMin} min</p>
-      ${hostDuration}
+      <p class="arcade-hint">Spice ${lobby.spice} · ${lobby.is_public ? "Public" : "Code only"} · min 2 players · max 10${
+    anonymousVoting ? " · anonymous voting" : ""
+  } · all ready · cook ${cookMin} min</p>
+      ${hostSettings}
       <div class="lobby-list">${rows}</div>
       <p class="arcade-error" id="lobby-err"></p>
       <div class="arcade-actions"${generating ? ' hidden' : ""}>
@@ -128,8 +145,10 @@ export function mountLobbyScreen(root, ctx) {
   let kitProgress = null;
   let preserveWs = false;
   let intentionalLeave = false;
+  /** Persists across re-renders when the host expands/collapses settings */
+  let lobbySettingsOpen = false;
 
-  const paint = () => renderLobby(root, lobby, playerId, kitProgress);
+  const paint = () => renderLobby(root, lobby, playerId, kitProgress, lobbySettingsOpen);
 
   const errEl = () => root.querySelector("#lobby-err");
 
@@ -213,6 +232,26 @@ export function mountLobbyScreen(root, ctx) {
 
   const changeHandler = (e) => {
     const t = e.target;
+    if (t instanceof HTMLInputElement && t.id === "lobby-anonymous-voting") {
+      playSfxMinor();
+      if (ws.readyState !== WebSocket.OPEN) {
+        const err = errEl();
+        if (err) err.textContent = "Not connected.";
+        t.checked = !t.checked;
+        return;
+      }
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "set_anonymous_voting",
+            anonymous_voting: t.checked,
+          }),
+        );
+      } catch {
+        t.checked = !t.checked;
+      }
+      return;
+    }
     if (!(t instanceof HTMLSelectElement) || t.id !== "cook-duration-select") return;
     playSfxMinor();
     if (ws.readyState !== WebSocket.OPEN) {
@@ -285,8 +324,16 @@ export function mountLobbyScreen(root, ctx) {
       import("./modeSelect.js").then((mod) => ctx.navigate(mod.mountModeSelectScreen));
     }
   };
+  const toggleHandler = (e) => {
+    const t = e.target;
+    if (t instanceof HTMLDetailsElement && t.classList.contains("lobby-settings")) {
+      lobbySettingsOpen = t.open;
+    }
+  };
+
   root.addEventListener("click", clickHandler);
   root.addEventListener("change", changeHandler);
+  root.addEventListener("toggle", toggleHandler);
 
   paint();
 
@@ -298,6 +345,7 @@ export function mountLobbyScreen(root, ctx) {
     unmountMpChat();
     root.removeEventListener("click", clickHandler);
     root.removeEventListener("change", changeHandler);
+    root.removeEventListener("toggle", toggleHandler);
     root.innerHTML = "";
     ws.onclose = null;
     if (!preserveWs) {

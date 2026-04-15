@@ -25,12 +25,16 @@ const CREDITS = [
   },
   {
     name: "inboredom",
-    contribution: "UI Sound Design",
+    contribution: "UI Sound Design | Trimming Samples",
   },
   {
-    name: "danny / 47450 (discord)",
+    name: "danny / danro (discord)",
     contribution: "Pixel Art Rank Icons",
   },
+  {
+    name: "jac / 8scout",
+    contribution: "Tuning Samples",
+  }
 ];
 
 export function openCreditsOverlay() {

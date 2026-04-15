@@ -6,7 +6,7 @@ import { mountAuthCornerRegisterGuest } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountLoginScreen } from "./loginScreen.js";
 
-const USER_RE = /^[a-zA-Z0-9_]{3,20}$/;
+const USER_RE = /^[a-z0-9_]{3,20}$/;
 
 export function mountRegisterScreen(root, ctx) {
   root.innerHTML = `
@@ -17,7 +17,7 @@ export function mountRegisterScreen(root, ctx) {
         <span class="screen-topbar-spacer" aria-hidden="true"></span>
       </div>
       <div class="mp-hub-body">
-        <p class="arcade-hint">3–20 characters: letters, numbers, underscores</p>
+        <p class="arcade-hint">3–20 characters: lowercase letters, numbers, underscores</p>
         <label class="arcade-label" for="reg-user">Username</label>
         <input type="text" id="reg-user" class="arcade-input arcade-input--center" maxlength="20" autocomplete="username" />
         <label class="arcade-label" for="reg-pass">Password</label>
@@ -45,7 +45,7 @@ export function mountRegisterScreen(root, ctx) {
     const err = errEl();
     if (err) err.textContent = "";
     if (!USER_RE.test(u)) {
-      if (err) err.textContent = "Username: 3–20 chars, letters, numbers, underscores only.";
+      if (err) err.textContent = "Username: 3–20 chars, lowercase letters, numbers, underscores only.";
       return;
     }
     if (!p) {

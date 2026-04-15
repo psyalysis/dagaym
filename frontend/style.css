@@ -1455,9 +1455,94 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   text-align: center;
 }
 
-.host-cook-duration {
-  margin: 0 0 1rem;
-  text-align: center;
+/* Host-only: pre-match lobby options (expand for more fields later) */
+.lobby-settings {
+  margin: 0 0 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  text-align: left;
+}
+
+.lobby-settings-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  user-select: none;
+}
+
+.lobby-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.lobby-settings-chevron {
+  flex-shrink: 0;
+  width: 0.45em;
+  height: 0.45em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.55;
+  margin-top: -0.2em;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.lobby-settings[open] .lobby-settings-chevron {
+  transform: rotate(225deg);
+  margin-top: 0.15em;
+}
+
+.lobby-settings-body {
+  padding: 0 0.85rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.lobby-settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.15rem 0 0;
+  cursor: pointer;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.lobby-settings-toggle input {
+  margin: 0.12rem 0 0;
+  flex-shrink: 0;
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: var(--red);
+  cursor: pointer;
+}
+
+.lobby-settings-toggle-text {
+  text-transform: none;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.lobby-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.lobby-settings-label {
+  margin: 0;
+  text-align: left;
 }
 
 .arcade-select {
@@ -1473,6 +1558,13 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   color: var(--text);
   border-radius: 0;
   cursor: pointer;
+}
+
+/* After .arcade-select so margin wins; stack under label, left-aligned */
+.lobby-settings-select.arcade-select {
+  margin: 0.35rem 0 0;
+  align-self: flex-start;
+  max-width: 12rem;
 }
 
 .cook-timer {

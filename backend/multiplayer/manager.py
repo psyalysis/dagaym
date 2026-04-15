@@ -65,6 +65,26 @@ def _normalize_cook_duration_min(raw: Any) -> int | None:
     return None
 
 
+def voting_beat_entries(lobby: Lobby, lobby_id: str) -> list[dict[str, Any]]:
+    """Beats for slideshow + vote cards; names are neutral when ``anonymous_voting``."""
+    owners = sorted(lobby.uploaded, key=lambda x: x)
+    beats: list[dict[str, Any]] = []
+    for i, owner_id in enumerate(owners):
+        p = lobby.players.get(owner_id)
+        if lobby.anonymous_voting:
+            nm = f"Beat {i + 1}"
+        else:
+            nm = p.name if p else owner_id
+        beats.append(
+            {
+                "player_id": owner_id,
+                "name": nm,
+                "url": f"/beats/{lobby_id}/{owner_id}",
+            }
+        )
+    return beats
+
+
 def _user_wins_sync(user_id: int) -> int:
     db = SessionLocal()
     try:
@@ -189,18 +209,7 @@ class LobbyManager:
         if lobby.state == LobbyState.UPLOAD and lobby.upload_deadline_ts is not None:
             out["upload_deadline_ts"] = lobby.upload_deadline_ts
         if lobby.state == LobbyState.VOTING:
-            beats: list[dict[str, Any]] = []
-            for owner_id in sorted(lobby.uploaded, key=lambda x: x):
-                p = lobby.players.get(owner_id)
-                nm = p.name if p else owner_id
-                beats.append(
-                    {
-                        "player_id": owner_id,
-                        "name": nm,
-                        "url": f"/beats/{lobby_id}/{owner_id}",
-                    }
-                )
-            out["beats"] = beats
+            out["beats"] = voting_beat_entries(lobby, lobby_id)
             out["votes_unlock_at"] = lobby.votes_unlock_at
             if lobby.votes_unlock_at is not None:
                 out["votes_close_at"] = float(lobby.votes_unlock_at) + float(VOTING_COLLECT_S)
@@ -233,23 +242,35 @@ class LobbyManager:
         if no_winner_two_players:
             winners = []
 
+        owners_ordered = sorted(lobby.uploaded, key=lambda x: x)
+        beat_index: dict[str, int] = {pid: i + 1 for i, pid in enumerate(owners_ordered)}
+
         def name_for(pid: str) -> str:
             pl = lobby.players.get(pid)
             return pl.name if pl else pid
 
+        def results_display_name(pid: str) -> str:
+            base = name_for(pid)
+            if lobby.anonymous_voting and pid in beat_index:
+                return f"{base} - Beat {beat_index[pid]}"
+            return base
+
         board = sorted(counts.items(), key=lambda x: (-x[1], name_for(x[0])))
-        leaderboard = [{"player_id": pid, "name": name_for(pid), "votes": v} for pid, v in board]
-        winner_names = [name_for(w) for w in winners]
+        leaderboard = [
+            {"player_id": pid, "name": results_display_name(pid), "votes": v} for pid, v in board
+        ]
+        winner_names = [results_display_name(w) for w in winners]
         winner_user_ids = [lobby.players[w].user_id for w in winners if w in lobby.players]
 
         beats_out: list[dict[str, Any]] = []
-        for owner_id in sorted(lobby.uploaded, key=lambda x: x):
+        for owner_id in owners_ordered:
             pl = lobby.players.get(owner_id)
             nm = pl.name if pl else owner_id
+            label = results_display_name(owner_id) if lobby.anonymous_voting else nm
             beats_out.append(
                 {
                     "player_id": owner_id,
-                    "name": nm,
+                    "name": label,
                     "url": f"/beats/{lobby_id}/{owner_id}",
                 }
             )
@@ -289,18 +310,7 @@ class LobbyManager:
         if st == LobbyState.UPLOAD and lobby.upload_deadline_ts is not None:
             out["upload_deadline_ts"] = lobby.upload_deadline_ts
         if st == LobbyState.VOTING:
-            beats: list[dict[str, Any]] = []
-            for owner_id in sorted(lobby.uploaded, key=lambda x: x):
-                p = lobby.players.get(owner_id)
-                nm = p.name if p else owner_id
-                beats.append(
-                    {
-                        "player_id": owner_id,
-                        "name": nm,
-                        "url": f"/beats/{lobby_id}/{owner_id}",
-                    }
-                )
-            out["beats"] = beats
+            out["beats"] = voting_beat_entries(lobby, lobby_id)
             out["votes_unlock_at"] = lobby.votes_unlock_at
             if lobby.votes_unlock_at is not None:
                 out["votes_close_at"] = float(lobby.votes_unlock_at) + float(VOTING_COLLECT_S)
@@ -319,6 +329,8 @@ class LobbyManager:
             "state",
             "spice",
             "cook_duration_min",
+            "max_players",
+            "anonymous_voting",
         ):
             if key in snap:
                 out[key] = snap[key]
@@ -592,6 +604,33 @@ class LobbyManager:
             {"type": "lobby_update", "lobby": self.lobbies[lobby_id].lobby_snapshot()},
         )
 
+    async def set_anonymous_voting(self, player_id: str, raw_flag: Any) -> None:
+        flag = _coerce_bool(raw_flag, default=False)
+        async with self._lock:
+            lobby_id = self.player_lobby.get(player_id)
+            if not lobby_id:
+                return
+            lobby = self.lobbies.get(lobby_id)
+            if not lobby or lobby.state != LobbyState.LOBBY:
+                await self.send_player_error(
+                    player_id,
+                    "You can only change anonymous voting before the match starts.",
+                )
+                return
+            host_id = next(iter(lobby.players)) if lobby.players else None
+            if host_id != player_id:
+                await self.send_player_error(
+                    player_id,
+                    "Only the host can set anonymous voting.",
+                )
+                return
+            lobby.anonymous_voting = flag
+
+        await self.broadcast(
+            lobby_id,
+            {"type": "lobby_update", "lobby": self.lobbies[lobby_id].lobby_snapshot()},
+        )
+
     async def kick_player(self, host_id: str, raw_target: Any) -> None:
         """Host-only, pre-game: boot someone from the lobby (they see kicked_from_lobby, then we disconnect them)."""
         target_id = str(raw_target or "").strip()
@@ -850,20 +889,7 @@ class LobbyManager:
             unlock = time.time() + (0 if n == 0 else SLIDESHOW_SEGMENT_S * n)
             lobby.votes_unlock_at = unlock
 
-        beats: list[dict[str, Any]] = []
-        for owner_id in sorted(
-            self.lobbies[lobby_id].uploaded,
-            key=lambda x: x,
-        ):
-            p = self.lobbies[lobby_id].players.get(owner_id)
-            nm = p.name if p else owner_id
-            beats.append(
-                {
-                    "player_id": owner_id,
-                    "name": nm,
-                    "url": f"/beats/{lobby_id}/{owner_id}",
-                }
-            )
+        beats = voting_beat_entries(self.lobbies[lobby_id], lobby_id)
 
         unlock_ts = self.lobbies[lobby_id].votes_unlock_at
         voting_msg: dict[str, Any] = {
@@ -1214,6 +1240,7 @@ class LobbyManager:
                 spice=old.spice,
                 is_public=old.is_public,
                 cook_duration_min=old.cook_duration_min,
+                anonymous_voting=old.anonymous_voting,
             )
             for pid, p in old.players.items():
                 new_lobby.players[pid] = Player(
@@ -1552,6 +1579,8 @@ class LobbyManager:
             await self.kick_player(player_id, data.get("target_player_id"))
         elif t == "set_cook_duration":
             await self.set_cook_duration(player_id, data.get("minutes"))
+        elif t == "set_anonymous_voting":
+            await self.set_anonymous_voting(player_id, data.get("anonymous_voting"))
         elif t == "cook_finished":
             await self.player_cook_finished(player_id)
         elif t == "rematch_vote":

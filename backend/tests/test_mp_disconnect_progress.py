@@ -6,8 +6,43 @@ import asyncio
 import json
 from pathlib import Path
 
-from backend.multiplayer.lobby import Lobby, LobbyState, Player
-from backend.multiplayer.manager import LobbyManager
+from backend.multiplayer.lobby import MAX_LOBBY_PLAYERS, Lobby, LobbyState, Player
+from backend.multiplayer.manager import LobbyManager, voting_beat_entries
+
+
+def test_results_payload_reveals_real_names_with_beat_slots_when_anonymous() -> None:
+    lobby = Lobby(id="L1", spice=0.5, is_public=True)
+    lobby.state = LobbyState.RESULTS
+    lobby.anonymous_voting = True
+    lobby.players["z"] = Player(id="z", name="Zed", user_id=1, wins=0)
+    lobby.players["a"] = Player(id="a", name="Ann", user_id=2, wins=0)
+    lobby.players["m"] = Player(id="m", name="Mia", user_id=3, wins=0)
+    lobby.uploaded = {"z", "a", "m"}
+    lobby.votes = {"a": "z", "m": "z"}
+    payload, winner_uids = LobbyManager._results_ws_payload_and_winner_user_ids(lobby, "L1")
+    assert winner_uids == [1]
+    assert payload["winners"] == ["Zed - Beat 3"]
+    by_id = {b["player_id"]: b["name"] for b in payload["beats"]}
+    assert by_id["a"] == "Ann - Beat 1"
+    assert by_id["z"] == "Zed - Beat 3"
+    assert by_id["m"] == "Mia - Beat 2"
+    names_by_pid = {row["player_id"]: row["name"] for row in payload["leaderboard"]}
+    assert names_by_pid["z"] == "Zed - Beat 3"
+
+
+def test_voting_beat_entries_anonymous_labels() -> None:
+    lobby = Lobby(id="X1", spice=0.5, is_public=True)
+    lobby.state = LobbyState.VOTING
+    lobby.anonymous_voting = True
+    lobby.players["z"] = Player(id="z", name="Zed", user_id=1, wins=0)
+    lobby.players["a"] = Player(id="a", name="Ann", user_id=2, wins=0)
+    lobby.uploaded = {"z", "a"}
+    beats = voting_beat_entries(lobby, "X1")
+    assert [b["player_id"] for b in beats] == ["a", "z"]
+    assert [b["name"] for b in beats] == ["Beat 1", "Beat 2"]
+    lobby.anonymous_voting = False
+    beats2 = voting_beat_entries(lobby, "X1")
+    assert [b["name"] for b in beats2] == ["Ann", "Zed"]
 
 
 def test_lobby_snapshot_includes_progress_fields() -> None:
@@ -22,6 +57,8 @@ def test_lobby_snapshot_includes_progress_fields() -> None:
 
     snap = lobby.lobby_snapshot()
     assert snap["player_count"] == 2
+    assert snap["max_players"] == MAX_LOBBY_PLAYERS
+    assert snap["anonymous_voting"] is False
     assert snap["cook_finished"] == ["x"]
     assert snap["uploaded"] == ["x", "y"]
     assert snap["slideshow_completed"] == ["y"]

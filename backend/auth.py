@@ -13,6 +13,7 @@ import bcrypt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal, get_db
@@ -68,7 +69,7 @@ def decode_token(token: str) -> dict:
 
 
 def register_user(db: Session, body: RegisterRequest) -> RegisterResponse:
-    existing = db.query(User).filter(User.username == body.username).first()
+    existing = db.query(User).filter(func.lower(User.username) == body.username.lower()).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already taken.")
     user = User(
@@ -82,7 +83,7 @@ def register_user(db: Session, body: RegisterRequest) -> RegisterResponse:
 
 
 def login_user(db: Session, body: LoginRequest) -> TokenResponse:
-    user = db.query(User).filter(User.username == body.username).first()
+    user = db.query(User).filter(func.lower(User.username) == body.username.lower()).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password.")
     token = create_access_token(user_id=user.id, username=user.username)
