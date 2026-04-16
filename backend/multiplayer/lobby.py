@@ -39,13 +39,11 @@ VOTING_COLLECT_S = 30
 # Lobbies in results older than this are purged (uploads deleted).
 LOBBY_RESULTS_TTL_S = 3600
 
-# After a WebSocket closes, keep the seat this long so the client can resume.
-MP_WS_GRACE_S = 90.0
-
-# Fixed lobby capacity (join cap + server browser).
-MAX_LOBBY_PLAYERS = 10
+# Max players per lobby (join + server browser).
+MAX_LOBBY_PLAYERS = 8
 
 
+# These are all of the states which a lobby can go in, in chronological order :)
 class LobbyState(str, Enum):
     WAITING = "waiting"
     LOBBY = "lobby"
@@ -81,8 +79,6 @@ class Lobby:
     created_at: float = field(default_factory=time.time)
     results_at: float | None = None
     cook_duration_min: int = DEFAULT_COOK_DURATION_MIN
-    # When True, voting slideshow / vote cards use neutral labels (real names on results only).
-    anonymous_voting: bool = False
     cook_finished: set[str] = field(default_factory=set)
     # Wall-clock unix seconds; set during COOKING / UPLOAD for HTTP + WS recovery.
     cook_deadline_ts: float | None = None
@@ -111,8 +107,6 @@ class Lobby:
             "state": self.state.value,
             "host_id": host_id,
             "cook_duration_min": self.cook_duration_min,
-            "max_players": MAX_LOBBY_PLAYERS,
-            "anonymous_voting": self.anonymous_voting,
             "players": [
                 {
                     "id": p.id,

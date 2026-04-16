@@ -17,6 +17,10 @@ function readMetaCdnBase() {
   return c && c.length > 0 ? c.replace(/\/+$/, "") : "";
 }
 
+/** Production game hostnames → default R2 public URL when meta is missing (deploy safety net). */
+const DEFAULT_CDN_FOR_HOSTNAMES = new Set(["beat-battle.net", "www.beat-battle.net"]);
+const DEFAULT_CDN_BASE = "https://assets.beat-battle.net";
+
 /**
  * Public asset host (R2 custom domain). Empty → dataset + SFX load from API origin paths.
  * Override: sessionStorage.setItem("beatBattleCdnBase", "https://assets.example.com"); reload.
@@ -28,7 +32,15 @@ export function getCdnBase() {
   } catch {
     /* ignore */
   }
-  return readMetaCdnBase();
+  const fromMeta = readMetaCdnBase();
+  if (fromMeta) return fromMeta;
+  try {
+    const h = window.location?.hostname || "";
+    if (DEFAULT_CDN_FOR_HOSTNAMES.has(h)) return DEFAULT_CDN_BASE;
+  } catch {
+    /* ignore */
+  }
+  return "";
 }
 
 export function getApiBase() {

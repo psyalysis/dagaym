@@ -8,6 +8,7 @@ import { showAppError } from "./errorToast.js";
 import { playSfxBeatBattle } from "./sfx.js";
 import { mountModeSelectScreen } from "./screens/modeSelect.js";
 import { initCornerSocialTooltips } from "./cornerSocialTooltips.js";
+import { initCornerSocialMenu } from "./cornerSocialMenu.js";
 import { initCreditsCornerControl } from "./creditsOverlay.js";
 import { initDevStatsPanel, recordPageVisit } from "./devStatsPanel.js";
 import { initSupportersClient } from "./supporters.js";
@@ -16,6 +17,8 @@ function boot() {
   initSupportersClient();
   recordPageVisit();
   initCornerSocialTooltips();
+  const cornerMenu = document.querySelector(".corner-social-menu");
+  if (cornerMenu instanceof HTMLElement) initCornerSocialMenu(cornerMenu);
   const creditsBtn = document.getElementById("credits-corner-btn");
   if (creditsBtn instanceof HTMLElement) initCreditsCornerControl(creditsBtn);
   window.addEventListener("error", (ev) => {

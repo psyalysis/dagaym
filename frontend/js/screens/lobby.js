@@ -2,10 +2,7 @@
  * Pre-game room: roster, ready up, host starts → cook.
  */
 import { notifyMpServerError } from "../errorToast.js";
-import { dismissServerRestartingWait } from "../serverRestartOverlay.js";
-import { applyMatchResyncFromPayload, mergeMatchResyncIntoLobby } from "../mpMatchResync.js";
-import { runMpWsReconnect } from "../mpReconnect.js";
-import { clearMpSeat, saveMpSeat } from "../mpSeatStorage.js";
+import { showServerRestartingWait } from "../serverRestartOverlay.js";
 import {
   navigateToMenuAfterLobbyDissolved,
   notifyMpPlayerJoin,
@@ -36,7 +33,6 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
   const hostId = lobby.host_id || "";
   const isHost = Boolean(selfId && hostId && selfId === hostId);
   const cookMin = Number(lobby.cook_duration_min) || 10;
-  const anonymousVoting = Boolean(lobby.anonymous_voting);
   const generating = lobby.state === "generating" || kitProgress != null;
   const pct = generating ? Math.min(100, Number(kitProgress?.percent) || 0) : 0;
   const kitMsg = kitProgress?.message || "Preparing kit…";
@@ -96,10 +92,6 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
             <option value="30"${cookMin === 30 ? " selected" : ""}>30 min</option>
           </select>
         </div>
-        <label class="lobby-settings-toggle">
-          <input type="checkbox" id="lobby-anonymous-voting"${anonymousVoting ? " checked" : ""} />
-          <span class="lobby-settings-toggle-text">Anonymous voting</span>
-        </label>
       </div>
     </details>
   `
@@ -108,9 +100,7 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
   root.innerHTML = `
     <div class="screen lobby arcade-panel">
       <h2 class="arcade-heading">LOBBY <span class="lobby-id">${escapeHtml(lobby.lobby_id || "")}</span></h2>
-      <p class="arcade-hint">Spice ${lobby.spice} · ${lobby.is_public ? "Public" : "Code only"} · min 2 players · max 10${
-    anonymousVoting ? " · anonymous voting" : ""
-  } · all ready · cook ${cookMin} min</p>
+      <p class="arcade-hint">Spice ${lobby.spice} · ${lobby.is_public ? "Public" : "Code only"} · min 2 players · all ready · cook ${cookMin} min</p>
       ${hostSettings}
       <div class="lobby-list">${rows}</div>
       <p class="arcade-error" id="lobby-err"></p>
@@ -141,7 +131,7 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
 }
 
 export function mountLobbyScreen(root, ctx) {
-  let ws = ctx.mpWs;
+  const ws = ctx.mpWs;
   const playerId = ctx.playerId;
   let lobby = ctx.lobby;
   /** @type {null | { step?: number; total?: number; message?: string; percent?: number }} */
@@ -161,22 +151,13 @@ export function mountLobbyScreen(root, ctx) {
   }
 
   mountAuthCornerLeave(ctx);
-  let unmountMpChat = mountMpChat({ ws, getWs: () => ctx.mpWs, playerId });
+  const unmountMpChat = mountMpChat({ ws, playerId });
 
-  const onMessage = async (ev) => {
+  const onMessage = (ev) => {
     let m;
     try {
       m = JSON.parse(ev.data);
     } catch {
-      return;
-    }
-    if (m.type === "connected") return;
-    if (m.type === "match_resync") {
-      const nav = await applyMatchResyncFromPayload(ctx, m, "lobby");
-      if (!nav) {
-        lobby = mergeMatchResyncIntoLobby(m, lobby);
-        paint();
-      }
       return;
     }
     ingestMpChatMessage(m);
@@ -188,11 +169,10 @@ export function mountLobbyScreen(root, ctx) {
     notifyMpPlayerLeave(m, playerId);
     if (m.type === "kicked_from_lobby") {
       intentionalLeave = true;
-      clearMpSeat();
       showKickedFromMatchToast();
       clearMpChatSession();
       try {
-        ctx.mpWs.close();
+        ws.close();
       } catch {
         /* ignore */
       }
@@ -201,8 +181,6 @@ export function mountLobbyScreen(root, ctx) {
     }
     if (m.type === "lobby_update" && m.lobby) {
       lobby = m.lobby;
-      const lid = String(m.lobby.lobby_id || "").trim();
-      if (lid) saveMpSeat(lid, String(playerId));
       if (m.lobby.state !== "generating") kitProgress = null;
       paint();
     }
@@ -219,16 +197,14 @@ export function mountLobbyScreen(root, ctx) {
     }
     if (m.type === "lobby_dissolved") {
       intentionalLeave = true;
-      clearMpSeat();
-      void navigateToMenuAfterLobbyDissolved(ctx, ctx.mpWs, m);
+      void navigateToMenuAfterLobbyDissolved(ctx, ws, m);
       return;
     }
     if (m.type === "start_game") {
       playSfxBeatBattle();
       preserveWs = true;
-      if (m.lobby_id) saveMpSeat(String(m.lobby_id), String(playerId));
       ctx.navigate(mountCookScreen, {
-        mpWs: ctx.mpWs,
+        mpWs: ws,
         playerId,
         lobbyId: m.lobby_id,
         seed: m.seed,
@@ -239,64 +215,25 @@ export function mountLobbyScreen(root, ctx) {
     }
   };
 
-  const attachReconnectClose = (sock) => {
-    sock.addEventListener(
-      "close",
-      (ev) => {
-        if (preserveWs || intentionalLeave) return;
-        dismissServerRestartingWait();
-        void runMpWsReconnect(ev, {
-          ctx,
-          intentionalLeave: () => intentionalLeave,
-          preserveWs: () => preserveWs,
-          onReplaceSocket: (nw) => {
-            ws = nw;
-            ctx.mpWs = nw;
-            unmountMpChat();
-            unmountMpChat = mountMpChat({ ws: nw, getWs: () => ctx.mpWs, playerId, continueSession: true });
-            nw.onmessage = onMessage;
-            attachReconnectClose(nw);
-          },
-        });
-      },
-      { once: true },
-    );
+  ws.onclose = () => {
+    if (preserveWs || intentionalLeave) return;
+    showServerRestartingWait();
+    import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
   };
-  attachReconnectClose(ws);
 
   ws.onmessage = onMessage;
 
   const changeHandler = (e) => {
     const t = e.target;
-    if (t instanceof HTMLInputElement && t.id === "lobby-anonymous-voting") {
-      playSfxMinor();
-      if (ctx.mpWs.readyState !== WebSocket.OPEN) {
-        const err = errEl();
-        if (err) err.textContent = "Not connected.";
-        t.checked = !t.checked;
-        return;
-      }
-      try {
-        ctx.mpWs.send(
-          JSON.stringify({
-            type: "set_anonymous_voting",
-            anonymous_voting: t.checked,
-          }),
-        );
-      } catch {
-        t.checked = !t.checked;
-      }
-      return;
-    }
     if (!(t instanceof HTMLSelectElement) || t.id !== "cook-duration-select") return;
     playSfxMinor();
-    if (ctx.mpWs.readyState !== WebSocket.OPEN) {
+    if (ws.readyState !== WebSocket.OPEN) {
       const err = errEl();
       if (err) err.textContent = "Not connected.";
       return;
     }
     try {
-      ctx.mpWs.send(
+      ws.send(
         JSON.stringify({
           type: "set_cook_duration",
           minutes: parseInt(t.value, 10),
@@ -315,13 +252,13 @@ export function mountLobbyScreen(root, ctx) {
       const tid = kickBtn.dataset.kickId;
       if (!tid) return;
       playSfxMinor();
-      if (ctx.mpWs.readyState !== WebSocket.OPEN) {
+      if (ws.readyState !== WebSocket.OPEN) {
         const err = errEl();
         if (err) err.textContent = "Not connected.";
         return;
       }
       try {
-        ctx.mpWs.send(JSON.stringify({ type: "kick_player", target_player_id: tid }));
+        ws.send(JSON.stringify({ type: "kick_player", target_player_id: tid }));
       } catch {
         /* ignore */
       }
@@ -335,13 +272,13 @@ export function mountLobbyScreen(root, ctx) {
       if (pl.some((p) => String(p.id) === String(playerId) && p.ready)) return;
       if (/** @type {HTMLButtonElement} */ (btn).disabled) return;
       playSfxMajor();
-      if (ctx.mpWs.readyState !== WebSocket.OPEN) {
+      if (ws.readyState !== WebSocket.OPEN) {
         const err = errEl();
         if (err) err.textContent = "Not connected. Leave and rejoin.";
         return;
       }
       try {
-        ctx.mpWs.send(JSON.stringify({ type: "player_ready" }));
+        ws.send(JSON.stringify({ type: "player_ready" }));
       } catch {
         /* keep button usable — lobby state unchanged */
       }
@@ -352,16 +289,8 @@ export function mountLobbyScreen(root, ctx) {
       playSfxMinor();
       intentionalLeave = true;
       clearMpChatSession();
-      clearMpSeat();
       try {
-        if (ctx.mpWs.readyState === WebSocket.OPEN) {
-          ctx.mpWs.send(JSON.stringify({ type: "leave_lobby" }));
-        }
-      } catch {
-        /* ignore */
-      }
-      try {
-        ctx.mpWs.close();
+        ws.close();
       } catch {
         /* ignore */
       }
@@ -379,9 +308,6 @@ export function mountLobbyScreen(root, ctx) {
   root.addEventListener("change", changeHandler);
   root.addEventListener("toggle", toggleHandler);
 
-  const initialLid = String(lobby?.lobby_id || "").trim();
-  if (initialLid) saveMpSeat(initialLid, String(playerId));
-
   paint();
 
   return () => {
@@ -394,9 +320,10 @@ export function mountLobbyScreen(root, ctx) {
     root.removeEventListener("change", changeHandler);
     root.removeEventListener("toggle", toggleHandler);
     root.innerHTML = "";
+    ws.onclose = null;
     if (!preserveWs) {
       try {
-        ctx.mpWs.close();
+        ws.close();
       } catch {
         /* ignore */
       }

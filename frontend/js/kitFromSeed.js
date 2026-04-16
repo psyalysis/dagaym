@@ -123,37 +123,6 @@ function encodedDatasetPath(relPath) {
 }
 
 /**
- * Dataset file URL: CDN when `beat-battle-cdn` meta (or storage) set, else same-origin `/media/dataset/`.
- * Manifest paths are like ``trap/synths/3D_CHORD.ogg`` → ``https://assets.beat-battle.net/trap/synths/3D_CHORD.ogg``.
- */
-export function datasetMediaUrl(apiBase, relPath) {
-  const enc = encodedDatasetPath(relPath);
-  const cdn = getCdnBase().replace(/\/+$/, "");
-  if (cdn && enc) return `${cdn}/${enc}`;
-  const base = apiBase.replace(/\/+$/, "");
-  return `${base}/media/dataset/${enc}`;
-}
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {string}
- */
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const chunk = 0x8000;
-  let bin = "";
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
-  }
-  return btoa(bin);
-}
-
-/**
- * @param {string} apiBase
- * @param {string} relPath
- * @returns {Promise<string>} base64 OGG (dataset file bytes)
- */
-/**
  * Dataset files must be OGG; HTML/error pages decode as "failed" in the browser.
  * @param {string} relPath
  * @param {ArrayBuffer} arr
@@ -177,11 +146,71 @@ function assertOggPayload(relPath, arr) {
   throw new Error(`Expected OGG audio for ${relPath} (missing OggS header).`);
 }
 
-async function fetchMediaKitBase64(apiBase, relPath) {
-  const res = await fetch(datasetMediaUrl(apiBase, relPath));
+/**
+ * Preferred URL for a dataset file (CDN when configured, else API). Fetches should use
+ * {@link fetchDatasetArrayBuffer} so a failed CDN response can fall back to `/media/dataset/`.
+ * Manifest paths: ``trap/synths/x.ogg`` → ``https://assets.beat-battle.net/trap/synths/x.ogg``.
+ */
+export function datasetMediaUrl(apiBase, relPath) {
+  const enc = encodedDatasetPath(relPath);
+  const cdn = getCdnBase().replace(/\/+$/, "");
+  if (cdn && enc) return `${cdn}/${enc}`;
+  const base = apiBase.replace(/\/+$/, "");
+  return `${base}/media/dataset/${enc}`;
+}
+
+/**
+ * @param {string} apiBase
+ * @param {string} relPath
+ * @returns {Promise<ArrayBuffer>} OGG bytes (validated)
+ */
+async function fetchDatasetArrayBuffer(apiBase, relPath) {
+  const enc = encodedDatasetPath(relPath);
+  if (!enc) throw new Error(`Invalid dataset path: ${relPath}`);
+  const base = apiBase.replace(/\/+$/, "");
+  const apiUrl = `${base}/media/dataset/${enc}`;
+  const cdn = getCdnBase().replace(/\/+$/, "");
+  if (cdn) {
+    const cdnUrl = `${cdn}/${enc}`;
+    try {
+      const res = await fetch(cdnUrl);
+      if (res.ok) {
+        const arr = await res.arrayBuffer();
+        assertOggPayload(relPath, arr);
+        return arr;
+      }
+    } catch {
+      /* fall through to API */
+    }
+  }
+  const res = await fetch(apiUrl);
   if (!res.ok) throw new Error(`fetch ${relPath}: ${res.status}`);
   const arr = await res.arrayBuffer();
   assertOggPayload(relPath, arr);
+  return arr;
+}
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {string}
+ */
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunk = 0x8000;
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+  }
+  return btoa(bin);
+}
+
+/**
+ * @param {string} apiBase
+ * @param {string} relPath
+ * @returns {Promise<string>} base64 OGG (dataset file bytes)
+ */
+async function fetchMediaKitBase64(apiBase, relPath) {
+  const arr = await fetchDatasetArrayBuffer(apiBase, relPath);
   return arrayBufferToBase64(arr);
 }
 
@@ -208,10 +237,7 @@ export async function resampleTo44100(audioBuffer) {
  * @returns {Promise<AudioBuffer>}
  */
 export async function fetchDecodeResample(audioContext, apiBase, relPath) {
-  const res = await fetch(datasetMediaUrl(apiBase, relPath));
-  if (!res.ok) throw new Error(`fetch ${relPath}: ${res.status}`);
-  const arr = await res.arrayBuffer();
-  assertOggPayload(relPath, arr);
+  const arr = await fetchDatasetArrayBuffer(apiBase, relPath);
   let decoded;
   try {
     decoded = await audioContext.decodeAudioData(arr.slice(0));
@@ -298,10 +324,7 @@ export async function loadSynthBuffersAndMp3Base64Parallel({
       if (!paths?.length) throw new Error(`No samples for ${key}`);
       const idx = pickIndex(seed, slot, spice, paths.length);
       const relPath = paths[idx];
-      const res = await fetch(datasetMediaUrl(apiBase, relPath));
-      if (!res.ok) throw new Error(`fetch ${relPath}: ${res.status}`);
-      const arr = await res.arrayBuffer();
-      assertOggPayload(relPath, arr);
+      const arr = await fetchDatasetArrayBuffer(apiBase, relPath);
       base64[key] = arrayBufferToBase64(arr);
       try {
         const decoded = await audioContext.decodeAudioData(arr.slice(0));

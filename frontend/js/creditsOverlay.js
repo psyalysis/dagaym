@@ -32,7 +32,7 @@ const CREDITS = [
     contribution: "Pixel Art Rank Icons",
   },
   {
-    name: "jac / 8scout",
+    name: "sebben",
     contribution: "Tuning Samples",
   }
 ];
