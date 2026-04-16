@@ -3,6 +3,7 @@
  */
 import { authHeadersMultipart, fetchMe } from "../authApi.js";
 import { getApiBase } from "../apiOrigin.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { RANK_BASELINE_KEY, RANK_PENDING_KEY } from "../rankUi.js";
 import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
@@ -15,7 +16,11 @@ import {
   mountMpChat,
   mpChatHandleErrorPayload,
 } from "../mpChat.js";
-import { navigateToMenuAfterLobbyDissolved, notifyRematchWant } from "../mpPresenceToast.js";
+import {
+  navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerDisconnected,
+  notifyRematchWant,
+} from "../mpPresenceToast.js";
 import { setRematchProgressHint } from "../mpMatchRoster.js";
 import { playSfxMinor } from "../sfx.js";
 import { supporterDisplayNameInnerHtml } from "../supporters.js";
@@ -65,6 +70,7 @@ function escapeHtml(s) {
 
 export function mountResultsScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
+  setAppErrorContext({ screen: "Results", phase: "Match finished" });
 
   /** Intentional socket close — skip the "server restarting" overlay. */
   let teardownClose = false;
@@ -284,6 +290,7 @@ export function mountResultsScreen(root, ctx) {
       return;
     }
     ingestMpChatMessage(m);
+    notifyMpPlayerDisconnected(m, playerId);
     notifyRematchWant(m, playerId);
     if (m.type === "player_leave" && m.player_id != null) {
       const gone = String(m.player_id);

@@ -31,7 +31,7 @@ def main() -> None:
     p.add_argument(
         "--pixels",
         type=int,
-        default=15,
+        default=1,
         help="Number of pixels to remove from the bottom (default: 3)",
     )
     p.add_argument(

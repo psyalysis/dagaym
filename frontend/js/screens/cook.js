@@ -5,13 +5,14 @@ import { authHeaders, fetchMe } from "../authApi.js";
 import { RANK_BASELINE_KEY } from "../rankUi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
-import { notifyMpServerError, showAppError } from "../errorToast.js";
+import { notifyMpServerError, setAppErrorContext, showAppError } from "../errorToast.js";
 import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
 import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
 import { runMpWsReconnect } from "../mpReconnect.js";
 import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerDisconnected,
   notifyMpPlayerJoin,
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
@@ -195,7 +196,7 @@ function tryNavigatePastCookPhase(ctx, ws, meta) {
  * @param {HTMLElement} root
  * @param {object} ctx
  * @param {(sounds: Record<string, string>) => void} start
- * @param {{ getCancelled: () => boolean }} opts
+ * @param {{ getCancelled: () => boolean; skipSynthReveal?: boolean }} opts
  */
 async function buildKitClientSide(root, ctx, start, opts) {
   const meta = await fetchLobbyKitMeta(ctx);
@@ -280,7 +281,9 @@ async function buildKitClientSide(root, ctx, start, opts) {
     }
     if (loadEl) loadEl.textContent = "";
 
-    await runSynthReveal(ac, synthBuffers, () => drumsPending);
+    if (!opts.skipSynthReveal) {
+      await runSynthReveal(ac, synthBuffers, () => drumsPending);
+    }
     if (opts.getCancelled()) {
       stopPhasePoll();
       return;
@@ -306,11 +309,16 @@ async function buildKitClientSide(root, ctx, start, opts) {
  * @param {HTMLElement} root
  * @param {object} ctx
  * @param {Record<string, string>} sounds
- * @param {{ initialCookRemainingS?: number | null; onBridgeDetach?: () => void }} [phaseOpts]
+ * @param {{
+ *   initialCookRemainingS?: number | null;
+ *   onBridgeDetach?: () => void;
+ *   unmountFlags?: { teardownClose: boolean };
+ * }} [phaseOpts]
  * @returns {() => void}
  */
 function setupCookUI(root, ctx, sounds, phaseOpts) {
   phaseOpts?.onBridgeDetach?.();
+  const unmountFlags = phaseOpts?.unmountFlags;
   const playerId = ctx.playerId;
   const lobbyId = ctx.lobbyId;
   const cookMin = Number(ctx.cookDurationMin) || 10;
@@ -376,9 +384,10 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
   void (async () => {
     const sync = await fetchMatchSync(String(lobbyId));
     const L = lobbyLikeFromMatchSync(sync);
-    if (L && Array.isArray(L.players) && L.players.length) {
+    if (L) {
       lobbyView = normalizeLobbyLike(L);
       syncProgressHint();
+      syncSelfCookFinishedFromLobby();
     }
   })();
 
@@ -386,9 +395,10 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     String(lobbyId),
     (sync) => {
       const L = lobbyLikeFromMatchSync(sync);
-      if (L && Array.isArray(L.players) && L.players.length) {
+      if (L) {
         lobbyView = normalizeLobbyLike(L);
         syncProgressHint();
+        syncSelfCookFinishedFromLobby();
       }
     },
     5000,
@@ -513,6 +523,15 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
       finishedBtn.textContent = selfFinished ? "Done" : "Finished";
     }
   };
+
+  const syncSelfCookFinishedFromLobby = () => {
+    if (!lobbyView.cook_finished.some((id) => String(id) === String(playerId))) return;
+    if (selfFinished) return;
+    selfFinished = true;
+    setFinishedUi();
+    syncProgressHint();
+  };
+
   setFinishedUi();
 
   finishedBtn?.addEventListener("click", () => {
@@ -550,7 +569,20 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     }
     if (m.type === "connected") return;
     if (m.type === "match_resync") {
-      await applyMatchResyncFromPayload(ctx, m, "cook");
+      const navigated = await applyMatchResyncFromPayload(ctx, m, "cook");
+      if (
+        !navigated &&
+        Array.isArray(m.cook_finished) &&
+        m.cook_finished.length > 0
+      ) {
+        lobbyView = applyMatchWsToLobby(lobbyView, {
+          type: "cook_finished_update",
+          finished_player_ids: m.cook_finished,
+          player_count: m.player_count,
+        });
+        syncProgressHint();
+        syncSelfCookFinishedFromLobby();
+      }
       return;
     }
     ingestMpChatMessage(m);
@@ -561,6 +593,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     }
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
+    notifyMpPlayerDisconnected(m, playerId);
     if (m.type === "error") {
       mpChatHandleErrorPayload(m);
       notifyMpServerError(m);
@@ -580,6 +613,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     ) {
       lobbyView = applyMatchWsToLobby(lobbyView, m);
       syncProgressHint();
+      syncSelfCookFinishedFromLobby();
     }
     if (m.type === "upload_phase_start") {
       preserveWs = true;
@@ -594,6 +628,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
   };
 
   const onCookSocketClose = (ev) => {
+    if (unmountFlags?.teardownClose) return;
     if (!preserveWs) {
       showServerRestartingWait();
     }
@@ -610,7 +645,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
     dismissServerRestartingWait();
     void runMpWsReconnect(ev, {
       ctx,
-      intentionalLeave: () => false,
+      intentionalLeave: () => Boolean(unmountFlags?.teardownClose),
       preserveWs: () => preserveWs,
       onReplaceSocket: (nw) => {
         ctx.mpWs = nw;
@@ -632,6 +667,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
   ctx.mpWs.onmessage = onMessage;
 
   return () => {
+    if (unmountFlags) unmountFlags.teardownClose = true;
     stopLobbySyncPoll();
     unmountMpChat();
     if (localTimerId != null) {
@@ -657,6 +693,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
 }
 
 export function mountCookScreen(root, ctx) {
+  setAppErrorContext({ screen: "Cook", phase: "Cook phase — kit and timer" });
   const ws = ctx.mpWs;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
@@ -676,6 +713,7 @@ export function mountCookScreen(root, ctx) {
   /** Seconds left while we're still fetching stems — timer_update hammers this in. */
   const pending = { lastCookRemainingS: /** @type {number | null} */ null };
   let bridgeActive = true;
+  const unmountFlags = { teardownClose: false };
 
   const bridgeOnMessage = async (ev) => {
     if (!bridgeActive) return;
@@ -698,6 +736,7 @@ export function mountCookScreen(root, ctx) {
     }
     notifyMpPlayerJoin(m, ctx.playerId);
     notifyMpPlayerLeave(m, ctx.playerId);
+    notifyMpPlayerDisconnected(m, ctx.playerId);
     if (m.type === "error") {
       mpChatHandleErrorPayload(m);
       notifyMpServerError(m);
@@ -722,9 +761,6 @@ export function mountCookScreen(root, ctx) {
 
   const bridgePrevOnClose = ctx.mpWs.onclose;
   const onBridgeSocketClose = (ev) => {
-    if (bridgeActive && !cancelled) {
-      showServerRestartingWait();
-    }
     if (typeof bridgePrevOnClose === "function") {
       try {
         bridgePrevOnClose();
@@ -732,11 +768,12 @@ export function mountCookScreen(root, ctx) {
         /* ignore */
       }
     }
-    if (!bridgeActive || cancelled) return;
+    if (!bridgeActive || cancelled || unmountFlags.teardownClose) return;
+    showServerRestartingWait();
     dismissServerRestartingWait();
     void runMpWsReconnect(ev, {
       ctx,
-      intentionalLeave: () => cancelled,
+      intentionalLeave: () => cancelled || unmountFlags.teardownClose,
       preserveWs: () => !bridgeActive,
       onReplaceSocket: (nw) => {
         ctx.mpWs = nw;
@@ -756,6 +793,7 @@ export function mountCookScreen(root, ctx) {
     innerCleanup = setupCookUI(root, ctx, sounds, {
       initialCookRemainingS: initial,
       onBridgeDetach: () => {},
+      unmountFlags,
     });
   };
 
@@ -765,12 +803,14 @@ export function mountCookScreen(root, ctx) {
       try {
         await buildKitClientSide(root, ctx, start, {
           getCancelled: () => cancelled,
+          skipSynthReveal: Boolean(ctx.skipSynthReveal),
         });
       } catch (e) {
         if (!cancelled) {
           const msg = e instanceof Error ? e.message : "Unknown error";
           showAppError({
-            message: `Could not load kit: ${msg}`,
+            message: `Could not build the sound kit (${msg}).`,
+            hint: "Try leaving and rejoining the match, or refresh if this repeats.",
             errorCode: "KIT_CLIENT",
           });
           root.innerHTML = `
@@ -784,6 +824,7 @@ export function mountCookScreen(root, ctx) {
       }
     })();
     return () => {
+      unmountFlags.teardownClose = true;
       cancelled = true;
       bridgeActive = false;
       try {
@@ -812,13 +853,18 @@ export function mountCookScreen(root, ctx) {
     } catch (e) {
       if (!cancelled) {
         const msg = e instanceof Error ? e.message : "Unknown error";
-        showAppError({ message: msg, errorCode: "KIT_SYNC" });
+        showAppError({
+          message: `Could not sync your cook session: ${msg}`,
+          hint: "You were sent back to the multiplayer menu. Try rejoining if the match is still open.",
+          errorCode: "KIT_SYNC",
+        });
         import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
       }
     }
   })();
 
   return () => {
+    unmountFlags.teardownClose = true;
     cancelled = true;
     bridgeActive = false;
     try {

@@ -1,10 +1,11 @@
 /**
  * Pre-game room: roster, ready up, host starts → cook.
  */
-import { notifyMpServerError } from "../errorToast.js";
+import { notifyMpServerError, setAppErrorContext } from "../errorToast.js";
 import { showServerRestartingWait } from "../serverRestartOverlay.js";
 import {
   navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerDisconnected,
   notifyMpPlayerJoin,
   notifyMpPlayerLeave,
   showKickedFromMatchToast,
@@ -33,6 +34,7 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
   const hostId = lobby.host_id || "";
   const isHost = Boolean(selfId && hostId && selfId === hostId);
   const cookMin = Number(lobby.cook_duration_min) || 10;
+  const anonymousVoting = Boolean(lobby.anonymous_voting);
   const generating = lobby.state === "generating" || kitProgress != null;
   const pct = generating ? Math.min(100, Number(kitProgress?.percent) || 0) : 0;
   const kitMsg = kitProgress?.message || "Preparing kit…";
@@ -82,7 +84,7 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
         <span class="lobby-settings-chevron" aria-hidden="true"></span>
       </summary>
       <div class="lobby-settings-body">
-        <div class="lobby-settings-field">
+        <div class="lobby-settings-field lobby-settings-field--stack">
           <label class="arcade-label lobby-settings-label" for="cook-duration-select">Cook time</label>
           <select id="cook-duration-select" class="arcade-select lobby-settings-select" aria-label="Cook duration in minutes">
             <option value="5"${cookMin === 5 ? " selected" : ""}>5 min</option>
@@ -92,6 +94,21 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
             <option value="30"${cookMin === 30 ? " selected" : ""}>30 min</option>
           </select>
         </div>
+        <div class="lobby-settings-field lobby-settings-field--toggle-row">
+          <span class="arcade-label lobby-settings-label" id="lobby-anon-label">Anonymous voting</span>
+          <button
+            type="button"
+            class="lobby-toggle${anonymousVoting ? " lobby-toggle--on" : ""}"
+            id="lobby-anonymous-toggle"
+            role="switch"
+            aria-labelledby="lobby-anon-label"
+            aria-checked="${anonymousVoting ? "true" : "false"}"
+          >
+            <span class="lobby-toggle-track" aria-hidden="true">
+              <span class="lobby-toggle-knob"></span>
+            </span>
+          </button>
+        </div>
       </div>
     </details>
   `
@@ -100,7 +117,9 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
   root.innerHTML = `
     <div class="screen lobby arcade-panel">
       <h2 class="arcade-heading">LOBBY <span class="lobby-id">${escapeHtml(lobby.lobby_id || "")}</span></h2>
-      <p class="arcade-hint">Spice ${lobby.spice} · ${lobby.is_public ? "Public" : "Code only"} · min 2 players · all ready · cook ${cookMin} min</p>
+      <p class="arcade-hint">Spice ${lobby.spice} · ${lobby.is_public ? "Public" : "Code only"} · min 2 players · all ready · cook ${cookMin} min${
+        anonymousVoting ? " · anonymous voting" : ""
+      }</p>
       ${hostSettings}
       <div class="lobby-list">${rows}</div>
       <p class="arcade-error" id="lobby-err"></p>
@@ -130,6 +149,27 @@ function renderLobby(root, lobby, selfId, kitProgress, settingsPanelOpen) {
   root.dataset.selfId = selfId;
 }
 
+/**
+ * @param {object} lobby
+ * @param {null | { step?: number; total?: number; message?: string; percent?: number }} kitProgress
+ */
+function syncLobbyContext(lobby, kitProgress) {
+  const players = lobby.players || [];
+  const generating = lobby.state === "generating" || kitProgress != null;
+  const st = String(lobby.state ?? "");
+  let phase = "In lobby";
+  if (generating) phase = "Building shared kit";
+  else if (st === "lobby") {
+    const readyCount = players.filter((p) => p.ready).length;
+    phase = `Ready ${readyCount}/${players.length}`;
+  }
+  setAppErrorContext({
+    screen: "Lobby",
+    phase,
+    lobbyId: lobby.lobby_id ? String(lobby.lobby_id) : undefined,
+  });
+}
+
 export function mountLobbyScreen(root, ctx) {
   const ws = ctx.mpWs;
   const playerId = ctx.playerId;
@@ -141,7 +181,14 @@ export function mountLobbyScreen(root, ctx) {
   /** Persists across re-renders when the host expands/collapses settings */
   let lobbySettingsOpen = false;
 
-  const paint = () => renderLobby(root, lobby, playerId, kitProgress, lobbySettingsOpen);
+  const paint = () => {
+    const prevSettings = root.querySelector("details.lobby-settings");
+    if (prevSettings instanceof HTMLDetailsElement) {
+      lobbySettingsOpen = prevSettings.open;
+    }
+    renderLobby(root, lobby, playerId, kitProgress, lobbySettingsOpen);
+    syncLobbyContext(lobby, kitProgress);
+  };
 
   const errEl = () => root.querySelector("#lobby-err");
 
@@ -167,6 +214,7 @@ export function mountLobbyScreen(root, ctx) {
     }
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
+    notifyMpPlayerDisconnected(m, playerId);
     if (m.type === "kicked_from_lobby") {
       intentionalLeave = true;
       showKickedFromMatchToast();
@@ -247,6 +295,24 @@ export function mountLobbyScreen(root, ctx) {
   const clickHandler = (e) => {
     const t = e.target;
     const origin = t instanceof Element ? t : t && "parentElement" in t ? t.parentElement : null;
+    const anonBtn = origin?.closest?.("#lobby-anonymous-toggle");
+    if (anonBtn instanceof HTMLButtonElement) {
+      e.preventDefault();
+      e.stopPropagation();
+      playSfxMinor();
+      if (ws.readyState !== WebSocket.OPEN) {
+        const err = errEl();
+        if (err) err.textContent = "Not connected.";
+        return;
+      }
+      const next = !Boolean(lobby.anonymous_voting);
+      try {
+        ws.send(JSON.stringify({ type: "set_anonymous_voting", enabled: next }));
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     const kickBtn = origin?.closest?.(".lobby-kick-btn");
     if (kickBtn instanceof HTMLButtonElement) {
       const tid = kickBtn.dataset.kickId;
@@ -290,6 +356,11 @@ export function mountLobbyScreen(root, ctx) {
       intentionalLeave = true;
       clearMpChatSession();
       try {
+        ws.send(JSON.stringify({ type: "leave_lobby" }));
+      } catch {
+        /* ignore */
+      }
+      try {
         ws.close();
       } catch {
         /* ignore */
@@ -299,9 +370,9 @@ export function mountLobbyScreen(root, ctx) {
   };
   const toggleHandler = (e) => {
     const t = e.target;
-    if (t instanceof HTMLDetailsElement && t.classList.contains("lobby-settings")) {
-      lobbySettingsOpen = t.open;
-    }
+    if (!(t instanceof HTMLDetailsElement) || !t.classList.contains("lobby-settings")) return;
+    if (!t.isConnected) return;
+    lobbySettingsOpen = t.open;
   };
 
   root.addEventListener("click", clickHandler);

@@ -137,7 +137,7 @@ async def multiplayer_ws(websocket: WebSocket) -> None:
                 continue
             msg_type = data.get("type")
             try:
-                await manager.handle_message(player_id, data)
+                close_after = await manager.handle_message(player_id, data, websocket)
             except Exception:
                 ref = secrets.token_hex(4).upper()
                 logger.exception(
@@ -161,6 +161,10 @@ async def multiplayer_ws(websocket: WebSocket) -> None:
                         "error_code": "INTERNAL",
                     },
                 )
+                continue
+            if close_after:
+                await websocket.close()
+                break
     except WebSocketDisconnect:
         pass
     finally:

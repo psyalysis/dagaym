@@ -19,6 +19,7 @@ from .lobby import (
     SLIDESHOW_SEGMENT_S,
     UPLOAD_PHASE_S,
     VOTING_COLLECT_S,
+    beat_display_name,
 )
 from .manager_results import results_ws_payload_and_winner_user_ids
 
@@ -70,7 +71,15 @@ async def cook_loop(manager: LobbyManager, lobby_id: str) -> None:
                 lobby = manager.lobbies.get(lobby_id)
                 if not lobby or lobby.state != LobbyState.COOKING:
                     return
-                if len(lobby.players) > 0 and len(lobby.cook_finished) >= len(lobby.players):
+                # Advance when everyone still connected has finished — don't block on soft-DC seats.
+                connected = {
+                    pid for pid in lobby.players if manager.player_ws.get(pid) is not None
+                }
+                if (
+                    len(lobby.players) > 0
+                    and connected
+                    and connected.issubset(lobby.cook_finished)
+                ):
                     early_all_done = True
                     break
             await asyncio.sleep(1)
@@ -153,13 +162,10 @@ async def begin_voting(manager: LobbyManager, lobby_id: str) -> None:
         unlock = time.time() + (0 if n == 0 else SLIDESHOW_SEGMENT_S * n)
         lobby.votes_unlock_at = unlock
 
+    lobby_v = manager.lobbies[lobby_id]
     beats: list[dict[str, Any]] = []
-    for owner_id in sorted(
-        manager.lobbies[lobby_id].uploaded,
-        key=lambda x: x,
-    ):
-        p = manager.lobbies[lobby_id].players.get(owner_id)
-        nm = p.name if p else owner_id
+    for i, owner_id in enumerate(sorted(lobby_v.uploaded, key=lambda x: x), start=1):
+        nm = beat_display_name(lobby_v, owner_id, i)
         beats.append(
             {
                 "player_id": owner_id,
@@ -168,12 +174,13 @@ async def begin_voting(manager: LobbyManager, lobby_id: str) -> None:
             }
         )
 
-    unlock_ts = manager.lobbies[lobby_id].votes_unlock_at
+    unlock_ts = lobby_v.votes_unlock_at
     voting_msg: dict[str, Any] = {
         "type": "voting_start",
         "lobby_id": lobby_id,
         "beats": beats,
         "votes_unlock_at": unlock_ts,
+        "anonymous_voting": lobby_v.anonymous_voting,
     }
     if unlock_ts is not None:
         voting_msg["votes_close_at"] = float(unlock_ts) + float(VOTING_COLLECT_S)

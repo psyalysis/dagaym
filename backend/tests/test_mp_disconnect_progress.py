@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 from backend.multiplayer.lobby import Lobby, LobbyState, Player
@@ -133,3 +134,24 @@ def test_get_match_sync_includes_snapshot_progress(tmp_path: Path) -> None:
     assert sync["uploaded"] == [p1]
     assert sync["votes"] == {}
     assert sync["players"][0]["id"] == p1
+
+
+def test_get_match_sync_includes_drumkit_when_cooking(tmp_path: Path) -> None:
+    """Menu resume must receive seed via drumkit (match_resync / HTTP match_sync)."""
+    mgr = LobbyManager(tmp_path)
+    lid = "ABC123"
+    p1 = "pCook"
+    lobby = Lobby(id=lid, spice=0.42, is_public=True)
+    lobby.state = LobbyState.COOKING
+    lobby.seed = 999_888_777
+    lobby.cook_deadline_ts = time.time() + 600.0
+    lobby.players[p1] = Player(id=p1, name="Chef", user_id=42, wins=0)
+    mgr.lobbies[lid] = lobby
+    mgr.player_lobby[p1] = lid
+
+    sync = mgr.get_match_sync_for_user(lid, 42)
+    assert sync is not None
+    assert sync["match_state"] == "cooking"
+    assert sync["drumkit"]["seed"] == 999_888_777
+    assert sync["spice"] == 0.42
+    assert sync["is_public"] is True

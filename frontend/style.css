@@ -61,6 +61,7 @@ select,
 .slide-player,
 .lobby-wave-toast-name,
 .app-error-toast-msg,
+.app-error-toast-hint,
 .app-error-toast-meta,
 .mp-presence-toast-text,
 .rank-up-title,
@@ -671,6 +672,13 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   color: var(--text-heading);
 }
 
+.app-error-toast-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.65rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 .app-error-toast-meta {
   margin: 0 0 0.65rem;
   font-size: 0.62rem;
@@ -679,10 +687,20 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   color: var(--text-muted);
 }
 
+.app-error-toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.app-error-toast-copy,
 .app-error-toast-dismiss {
   margin: 0;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.62rem;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.52rem;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
 }
 
 /* Server restart / WS loss (multiplayer) */
@@ -719,6 +737,68 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   line-height: 1.45;
   text-transform: uppercase;
   color: var(--text-heading);
+}
+
+/* Main menu: reconnect to previous match (grace window) */
+.mp-reconnect-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 121;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(6, 6, 6, 0.72);
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.mp-reconnect-menu-overlay--visible {
+  opacity: 1;
+}
+
+.mp-reconnect-menu-card {
+  max-width: min(92vw, 22rem);
+  border: 1px solid rgba(255, 200, 120, 0.35);
+  background: rgba(14, 12, 10, 0.98);
+  padding: 1.35rem 1.5rem 1.25rem;
+  text-align: center;
+}
+
+.mp-reconnect-menu-title {
+  margin: 0 0 1rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.45;
+  color: var(--text-heading);
+}
+
+.mp-reconnect-menu-timer {
+  margin: 0 0 1.15rem;
+}
+
+.mp-reconnect-menu-timer .mp-phase-timer {
+  max-width: 14rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.mp-reconnect-menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: center;
+}
+
+.mp-hub-reconnect-block-hint {
+  margin-top: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.mp-hub-actions--blocked .arcade-btn {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .server-restart-hint {
@@ -1394,6 +1474,24 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   box-shadow: 0 0 0 1px rgba(200, 64, 64, 0.22);
 }
 
+.mp-presence-toast--disconnect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  gap: 0.35rem;
+  padding: 0.5rem 1rem 0.48rem;
+  border: 1px solid rgba(130, 130, 150, 0.55);
+  box-shadow: 0 0 0 1px rgba(90, 90, 110, 0.2);
+}
+
+.mp-presence-toast-socket {
+  font-size: 1.28rem;
+  line-height: 1;
+  text-align: center;
+}
+
 .mp-presence-toast--visible {
   opacity: 1;
   transform: translateY(0);
@@ -1516,6 +1614,80 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.lobby-settings-field--stack .arcade-select.lobby-settings-select {
+  margin: 0.35rem 0 0;
+  width: 100%;
+  max-width: none;
+}
+
+.lobby-settings-field--toggle-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.lobby-settings-field--toggle-row .lobby-settings-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 2.65rem;
+  height: 1.32rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.lobby-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.lobby-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.45);
+  outline-offset: 2px;
+}
+
+.lobby-toggle--on {
+  background: var(--red-bright);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.lobby-toggle--on:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  filter: brightness(1.05);
+}
+
+.lobby-toggle-track {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.lobby-toggle-knob {
+  position: absolute;
+  top: 50%;
+  left: 0.14rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-top: -0.475rem;
+  background: #f2f2f2;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s ease;
+}
+
+.lobby-toggle--on .lobby-toggle-knob {
+  transform: translateX(1.28rem);
 }
 
 .lobby-settings-label {
@@ -1821,6 +1993,24 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   color: #e05555;
 }
 
+/* Roster tooltip: disconnected players — grey + green (grace) or red (no grace) on column hover */
+.mp-panel-head-roster:hover .mp-tooltip,
+.results-rematch-roster-col:hover .mp-tooltip {
+  display: block;
+}
+
+.mp-panel-head-roster:hover .mp-tip-name--dc-grace,
+.results-rematch-roster-col:hover .mp-tip-name--dc-grace {
+  color: rgba(158, 168, 162, 0.96);
+  text-shadow: 0 0 12px rgba(64, 140, 88, 0.42);
+}
+
+.mp-panel-head-roster:hover .mp-tip-name--dc-lost,
+.results-rematch-roster-col:hover .mp-tip-name--dc-lost {
+  color: rgba(168, 158, 158, 0.96);
+  text-shadow: 0 0 12px rgba(160, 72, 72, 0.35);
+}
+
 .slideshow-vote-deadline-wrap {
   margin-top: 0.35rem;
   max-width: 22rem;
@@ -2017,6 +2207,10 @@ body.mp-chat-open .app-root:has(#sound-grid:not(.hidden)) {
   font-family: inherit;
   font-size: 0.65rem;
   color: var(--text-muted);
+}
+
+.upload-form--on-server input[type="file"] {
+  opacity: 0.72;
 }
 
 .leaderboard-screen {

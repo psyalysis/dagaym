@@ -310,6 +310,27 @@ def get_me(user: User = Depends(get_current_user)) -> MeResponse:
     return _me_response_from_user(user)
 
 
+@app.get("/api/me/mp_reconnect_pending", response_class=ORJSONResponse)
+def get_mp_reconnect_pending(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> dict[str, Any] | None:
+    """Soft-disconnect grace: same seat can resume until deadline (see MP_WS_GRACE_S)."""
+    manager: LobbyManager = request.app.state.manager
+    return manager.pending_reconnect_for_user(user.id)
+
+
+@app.post("/api/me/mp_abandon_reconnect", response_class=ORJSONResponse)
+async def post_mp_abandon_reconnect(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> dict[str, bool]:
+    """After Leave: clear any soft-disconnect grace so menu reconnect does not race."""
+    manager: LobbyManager = request.app.state.manager
+    await manager.abandon_reconnect_grace_for_user(user.id)
+    return {"ok": True}
+
+
 @app.get("/leaderboard", response_model=list[LeaderboardEntry])
 def get_leaderboard(db: Session = Depends(get_db)) -> list[LeaderboardEntry]:
     rows = (

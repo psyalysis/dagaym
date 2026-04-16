@@ -2,6 +2,13 @@
  * MP home: host a game, browse the list, or type a code.
  */
 import { getUsername, isLoggedIn, validateSession } from "../authApi.js";
+import {
+  cleanupReconnectSuppressIfNoPending,
+  fetchMpReconnectPending,
+  getReconnectSuppressState,
+  isHubBlockedByReconnectDismiss,
+} from "../mpReconnectPending.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountModeSelectScreen } from "./modeSelect.js";
@@ -17,7 +24,10 @@ export function mountMultiplayerHubScreen(root, ctx) {
     return () => {};
   }
 
+  setAppErrorContext({ screen: "Multiplayer menu", phase: "Hub" });
   let cancelled = false;
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let hubBlockPollId = null;
   mountAuthCornerLeave(ctx);
   root.innerHTML = `
     <div class="screen mp-hub arcade-panel screen--vert-center">
@@ -36,6 +46,13 @@ export function mountMultiplayerHubScreen(root, ctx) {
     const displayName = ctx.username || getUsername() || "Player";
     const nameHtml = supporterDisplayNameInnerHtml(displayName);
 
+    const pending = await fetchMpReconnectPending();
+    cleanupReconnectSuppressIfNoPending(pending);
+    const hubBlocked = isHubBlockedByReconnectDismiss(pending);
+    const blockHint = hubBlocked
+      ? `<p class="arcade-hint mp-hub-reconnect-block-hint" id="mp-hub-reconnect-hint">You can start a new game when the reconnect window ends.</p>`
+      : "";
+
     root.innerHTML = `
     <div class="screen mp-hub arcade-panel screen--vert-center">
       <div class="screen-topbar">
@@ -45,10 +62,17 @@ export function mountMultiplayerHubScreen(root, ctx) {
       </div>
       <div class="mp-hub-body">
         <p class="arcade-hint">Playing as <strong>${nameHtml}</strong></p>
-        <div class="mp-hub-actions">
-          <button type="button" class="arcade-btn arcade-btn-primary" id="mp-create">Create game</button>
-          <button type="button" class="arcade-btn arcade-btn-primary" id="mp-join-code">Join game</button>
-          <button type="button" class="arcade-btn arcade-btn-secondary" id="mp-browse">Browse servers</button>
+        ${blockHint}
+        <div class="mp-hub-actions${hubBlocked ? " mp-hub-actions--blocked" : ""}">
+          <button type="button" class="arcade-btn arcade-btn-primary" id="mp-create"${
+            hubBlocked ? " disabled" : ""
+          }>Create game</button>
+          <button type="button" class="arcade-btn arcade-btn-primary" id="mp-join-code"${
+            hubBlocked ? " disabled" : ""
+          }>Join game</button>
+          <button type="button" class="arcade-btn arcade-btn-secondary" id="mp-browse"${
+            hubBlocked ? " disabled" : ""
+          }>Browse servers</button>
         </div>
       </div>
     </div>
@@ -60,21 +84,41 @@ export function mountMultiplayerHubScreen(root, ctx) {
     });
 
     root.querySelector("#mp-create")?.addEventListener("click", () => {
+      if (hubBlocked) return;
       playSfxMajor();
       ctx.navigate(mountSpiceSelectScreen, { mpName: displayName, username: displayName });
     });
     root.querySelector("#mp-browse")?.addEventListener("click", () => {
+      if (hubBlocked) return;
       playSfxMajor();
       ctx.navigate(mountServerBrowserScreen, { mpName: displayName, username: displayName });
     });
     root.querySelector("#mp-join-code")?.addEventListener("click", () => {
+      if (hubBlocked) return;
       playSfxMajor();
       ctx.navigate(mountJoinCodeScreen, { mpName: displayName, username: displayName });
     });
+
+    if (hubBlocked) {
+      const st = getReconnectSuppressState();
+      const until = st?.untilMs ?? 0;
+      hubBlockPollId = window.setInterval(() => {
+        if (cancelled) {
+          if (hubBlockPollId != null) window.clearInterval(hubBlockPollId);
+          return;
+        }
+        if (Date.now() >= until) {
+          if (hubBlockPollId != null) window.clearInterval(hubBlockPollId);
+          hubBlockPollId = null;
+          ctx.navigate(mountMultiplayerHubScreen);
+        }
+      }, 500);
+    }
   })();
 
   return () => {
     cancelled = true;
+    if (hubBlockPollId != null) window.clearInterval(hubBlockPollId);
     root.innerHTML = "";
   };
 }

@@ -3,13 +3,14 @@
  */
 import { authHeadersMultipart } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
-import { notifyMpServerError } from "../errorToast.js";
+import { notifyMpServerError, setAppErrorContext } from "../errorToast.js";
 import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
 import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
 import { runMpWsReconnect } from "../mpReconnect.js";
 import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerDisconnected,
   notifyMpPlayerJoin,
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
@@ -137,6 +138,7 @@ async function blobToClippedWav(blob) {
 
 export function mountVotingSlideshowScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
+  setAppErrorContext({ screen: "Listen & vote", phase: "Beat slideshow" });
 
   const playerId = ctx.playerId;
   const lobbyId = ctx.lobbyId;
@@ -570,6 +572,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
     }
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
+    notifyMpPlayerDisconnected(m, playerId);
     if (m.type === "error") {
       mpChatHandleErrorPayload(m);
       notifyMpServerError(m);

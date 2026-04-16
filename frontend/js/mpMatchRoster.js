@@ -2,7 +2,14 @@
 import { escapeHtml } from "./rankUi.js";
 
 /**
- * @typedef {{ id?: string; name?: string; ready?: boolean; rank?: unknown }} LobbyPlayerRow
+ * @typedef {{
+ *   id?: string;
+ *   name?: string;
+ *   ready?: boolean;
+ *   rank?: unknown;
+ *   connected?: boolean;
+ *   grace_deadline_ts?: number | null;
+ * }} LobbyPlayerRow
  * @typedef {{
  *   host_id?: string;
  *   players?: LobbyPlayerRow[];
@@ -173,11 +180,22 @@ function sortedNamesByDone(players, doneIds) {
  * @param {Set<string>} doneIds
  */
 function nameRowsTooltipHtml(players, doneIds) {
-  return sortedNamesByDone(players, doneIds)
-    .map(
-      (r) =>
-        `<span class="mp-tip-name mp-tip-name--${r.done ? "done" : "todo"}">${escapeHtml(r.name)}</span>`,
-    )
+  const rows = sortedNamesByDone(players, doneIds);
+  return rows
+    .map((r) => {
+      const raw = players.find((p) => String(p.id ?? "") === r.id);
+      const base = `mp-tip-name mp-tip-name--${r.done ? "done" : "todo"}`;
+      let dc = "";
+      if (raw && raw.connected === false) {
+        const gd = raw.grace_deadline_ts;
+        if (gd != null && Number.isFinite(Number(gd))) {
+          dc = " mp-tip-name--dc-grace";
+        } else {
+          dc = " mp-tip-name--dc-lost";
+        }
+      }
+      return `<span class="${base}${dc}">${escapeHtml(r.name)}</span>`;
+    })
     .join("<br>");
 }
 

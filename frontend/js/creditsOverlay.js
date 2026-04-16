@@ -28,6 +28,10 @@ const CREDITS = [
     contribution: "UI Sound Design | Trimming Samples",
   },
   {
+    name: "sarcasmo",
+    contribution: "Menu Pixel Icons",
+  },
+  {
     name: "danny / danro (discord)",
     contribution: "Pixel Art Rank Icons",
   },

@@ -1,7 +1,14 @@
 /**
  * Pick solo or jump into multiplayer.
  */
-import { isLoggedIn } from "../authApi.js";
+import { isLoggedIn, validateSession } from "../authApi.js";
+import { setAppErrorContext } from "../errorToast.js";
+import { showMpReconnectMenuOverlay } from "../mpReconnectMenuOverlay.js";
+import {
+  cleanupReconnectSuppressIfNoPending,
+  fetchMpReconnectPending,
+  shouldShowReconnectOverlay,
+} from "../mpReconnectPending.js";
 import { RANK_PENDING_KEY, showRankUpOverlay } from "../rankUi.js";
 import { mountAuthCornerGuest, mountAuthCornerMenu } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
@@ -86,6 +93,7 @@ function multiplayerButtonHtml() {
 }
 
 export function mountModeSelectScreen(root, ctx) {
+  setAppErrorContext({ screen: "Home", phase: "Mode select" });
   const loggedIn = isLoggedIn();
 
   const mpButtonHtml = multiplayerButtonHtml();
@@ -152,7 +160,29 @@ export function mountModeSelectScreen(root, ctx) {
       return;
     }
     playSfxMajor();
-    import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
+    void (async () => {
+      const sessionOk = await validateSession();
+      if (!sessionOk) return;
+      const pending = await fetchMpReconnectPending();
+      cleanupReconnectSuppressIfNoPending(pending);
+      if (pending && shouldShowReconnectOverlay(pending)) {
+        showMpReconnectMenuOverlay(pending, {
+          onReconnect: () => {
+            import("./mpResumeFromMenu.js").then((m) =>
+              ctx.navigate(m.mountMpResumeFromMenuScreen, { mpReconnectPending: pending }),
+            );
+          },
+          onCancel: () => {
+            ctx.navigate(mountModeSelectScreen);
+          },
+          onExpired: () => {
+            import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
+          },
+        });
+        return;
+      }
+      import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
+    })();
   };
 
   const showModeChoice = () => {

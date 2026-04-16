@@ -3,13 +3,14 @@
  */
 import { authHeadersMultipart } from "../authApi.js";
 import { getApiBase } from "../apiOrigin.js";
-import { notifyMpServerError } from "../errorToast.js";
+import { notifyMpServerError, setAppErrorContext } from "../errorToast.js";
 import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
 import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
 import { runMpWsReconnect } from "../mpReconnect.js";
 import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerDisconnected,
   notifyMpPlayerJoin,
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
@@ -65,6 +66,7 @@ const VOTE_COLLECT_FALLBACK_S = 30;
 
 export function mountVoteSelectionScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
+  setAppErrorContext({ screen: "Vote", phase: "Pick a winner" });
 
   const playerId = ctx.playerId ? String(ctx.playerId) : "";
   const lobbyId = ctx.lobbyId;
@@ -423,6 +425,7 @@ export function mountVoteSelectionScreen(root, ctx) {
     }
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
+    notifyMpPlayerDisconnected(m, playerId);
     if (m.type === "error") {
       mpChatHandleErrorPayload(m);
       if (m.error_code !== "MP_CHAT_COOLDOWN") {

@@ -4,7 +4,7 @@
 import { getApiBase } from "./apiOrigin.js";
 import { clearAuthCorner } from "./authCorner.js";
 import { getUsername, isLoggedIn, validateSession } from "./authApi.js";
-import { showAppError } from "./errorToast.js";
+import { resetAppErrorContext, setAppErrorContext, showAppError } from "./errorToast.js";
 import { playSfxBeatBattle } from "./sfx.js";
 import { mountModeSelectScreen } from "./screens/modeSelect.js";
 import { initCornerSocialTooltips } from "./cornerSocialTooltips.js";
@@ -26,7 +26,8 @@ function boot() {
     if (!fn || fn.includes("extension://") || fn.includes("moz-extension://")) return;
     if (!fn.includes("/js/") && !/\/main\.js(\?|$)/.test(fn)) return;
     showAppError({
-      message: ev.message || "A script error occurred.",
+      message: ev.message || "Something in the page hit an error.",
+      hint: "Try refreshing. If it happens again, copy the details below.",
       errorCode: ev.lineno ? `SCRIPT_L${ev.lineno}` : "SCRIPT",
     });
   });
@@ -34,7 +35,8 @@ function boot() {
     const r = ev.reason;
     const msg = r instanceof Error ? r.message : String(r);
     showAppError({
-      message: msg || "Unhandled promise rejection.",
+      message: msg || "Something failed in the background.",
+      hint: "Try again or refresh. Copy details if you need to report it.",
       errorCode: "UNHANDLED_REJECTION",
     });
   });
@@ -50,12 +52,15 @@ function boot() {
   const navigate = (mountFn, extra = {}) => {
     if (unmount) unmount();
     clearAuthCorner();
+    resetAppErrorContext();
     const ctx = {
       apiBase: getApiBase(),
       navigate,
       username: getUsername(),
       ...extra,
     };
+    if (ctx.playerId != null) setAppErrorContext({ playerId: String(ctx.playerId) });
+    if (ctx.lobbyId != null) setAppErrorContext({ lobbyId: String(ctx.lobbyId) });
     unmount = mountFn(root, ctx);
   };
 

@@ -79,6 +79,7 @@ class Lobby:
     created_at: float = field(default_factory=time.time)
     results_at: float | None = None
     cook_duration_min: int = DEFAULT_COOK_DURATION_MIN
+    anonymous_voting: bool = False
     cook_finished: set[str] = field(default_factory=set)
     # Wall-clock unix seconds; set during COOKING / UPLOAD for HTTP + WS recovery.
     cook_deadline_ts: float | None = None
@@ -107,6 +108,7 @@ class Lobby:
             "state": self.state.value,
             "host_id": host_id,
             "cook_duration_min": self.cook_duration_min,
+            "anonymous_voting": self.anonymous_voting,
             "players": [
                 {
                     "id": p.id,
@@ -123,3 +125,11 @@ class Lobby:
             "uploaded": sorted(self.uploaded),
             "slideshow_completed": sorted(self.slideshow_completed),
         }
+
+
+def beat_display_name(lobby: Lobby, owner_id: str, entry_index_1based: int) -> str:
+    """During anonymous voting, beats are labeled without real usernames."""
+    if lobby.anonymous_voting:
+        return f"Entry {entry_index_1based}"
+    p = lobby.players.get(owner_id)
+    return p.name if p else owner_id

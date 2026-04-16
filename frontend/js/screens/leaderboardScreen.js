@@ -2,6 +2,7 @@
  * Wins leaderboard — sorted, that's it.
  */
 import { fetchLeaderboard, isLoggedIn } from "../authApi.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { escapeHtml, rankBadgeHtml } from "../rankUi.js";
 import { supporterDisplayNameInnerHtml } from "../supporters.js";
 import { mountAuthCornerGuest, mountAuthCornerMenu } from "../authCorner.js";
@@ -9,6 +10,7 @@ import { playSfxMinor } from "../sfx.js";
 import { mountModeSelectScreen } from "./modeSelect.js";
 
 export function mountLeaderboardScreen(root, ctx) {
+  setAppErrorContext({ screen: "Leaderboard", phase: "Wins list" });
   root.innerHTML = `
     <div class="screen leaderboard-screen arcade-panel screen--vert-center">
       <div class="screen-topbar">

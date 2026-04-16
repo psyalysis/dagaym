@@ -2,6 +2,7 @@
  * Pick your heat + public or code-only, then we spin up a lobby.
  */
 import { getUsername } from "../authApi.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor, playSfxOff, playSfxOn } from "../sfx.js";
 import { mountMatchmakingScreen } from "./matchmaking.js";
@@ -16,6 +17,7 @@ const SPICES = [
 export function mountSpiceSelectScreen(root, ctx) {
   const displayName = (ctx.username || ctx.mpName || getUsername() || "Player").trim();
 
+  setAppErrorContext({ screen: "Heat level", phase: "Before creating lobby" });
   mountAuthCornerLeave(ctx);
 
   root.innerHTML = `

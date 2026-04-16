@@ -32,12 +32,25 @@ function show(kind, label) {
         ? "mp-presence-toast mp-presence-toast--leave"
         : kind === "kick"
           ? "mp-presence-toast mp-presence-toast--kick"
-          : "mp-presence-toast mp-presence-toast--rematch";
+          : kind === "disconnect"
+            ? "mp-presence-toast mp-presence-toast--disconnect"
+            : "mp-presence-toast mp-presence-toast--rematch";
   card.setAttribute("role", "status");
-  const text = document.createElement("span");
-  text.className = "mp-presence-toast-text";
-  text.textContent = label;
-  card.appendChild(text);
+  if (kind === "disconnect") {
+    const emoji = document.createElement("div");
+    emoji.className = "mp-presence-toast-socket";
+    emoji.setAttribute("aria-hidden", "true");
+    emoji.textContent = "\u{1F50C}";
+    const text = document.createElement("span");
+    text.className = "mp-presence-toast-text";
+    text.textContent = label;
+    card.append(emoji, text);
+  } else {
+    const text = document.createElement("span");
+    text.className = "mp-presence-toast-text";
+    text.textContent = label;
+    card.appendChild(text);
+  }
   host.appendChild(card);
   requestAnimationFrame(() => {
     requestAnimationFrame(() => card.classList.add("mp-presence-toast--visible"));
@@ -71,7 +84,21 @@ export function notifyMpPlayerLeave(m, selfId) {
   if (!id || id === selfId) return;
   const name = String(m.name ?? "").trim() || "Player";
   playSfxPlayerLeave();
-  show("leave", `${supporterPlainPrefix(name)}${name} left`);
+  show("leave", `${supporterPlainPrefix(name)}${name} left the game`);
+}
+
+/**
+ * Soft WebSocket drop — player may still rejoin during grace.
+ * @param {unknown} m
+ * @param {string} selfId
+ */
+export function notifyMpPlayerDisconnected(m, selfId) {
+  if (!m || m.type !== "player_disconnected") return;
+  const id = String(m.player_id ?? "");
+  if (!id || id === selfId) return;
+  const name = String(m.name ?? "").trim() || "Player";
+  playSfxPlayerLeave();
+  show("disconnect", `${supporterPlainPrefix(name)}${name} disconnected`);
 }
 
 /**

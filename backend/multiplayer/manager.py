@@ -30,6 +30,7 @@ from .lobby import (
     Lobby,
     LobbyState,
     Player,
+    beat_display_name,
 )
 from .manager_helpers import (
     BEAT_REACTION_KEYS,
@@ -70,6 +71,8 @@ class LobbyManager:
         self._vote_tasks: dict[str, asyncio.Task[None]] = {}
         # Tab went away but we might get resume_player_id soon — kill these on reconnect
         self._grace_tasks: dict[str, asyncio.Task[None]] = {}
+        # Wall-clock deadline for menu countdown / GET pending (parallel to grace tasks)
+        self._grace_deadline_ts: dict[str, float] = {}
 
     def register_auth_session(self, player_id: str, user_id: int, username: str) -> None:
         self.auth_user_id[player_id] = user_id
@@ -134,9 +137,8 @@ class LobbyManager:
             out["upload_deadline_ts"] = lobby.upload_deadline_ts
         if lobby.state == LobbyState.VOTING:
             beats: list[dict[str, Any]] = []
-            for owner_id in sorted(lobby.uploaded, key=lambda x: x):
-                p = lobby.players.get(owner_id)
-                nm = p.name if p else owner_id
+            for i, owner_id in enumerate(sorted(lobby.uploaded, key=lambda x: x), start=1):
+                nm = beat_display_name(lobby, owner_id, i)
                 beats.append(
                     {
                         "player_id": owner_id,
@@ -172,9 +174,8 @@ class LobbyManager:
             out["upload_deadline_ts"] = lobby.upload_deadline_ts
         if st == LobbyState.VOTING:
             beats: list[dict[str, Any]] = []
-            for owner_id in sorted(lobby.uploaded, key=lambda x: x):
-                p = lobby.players.get(owner_id)
-                nm = p.name if p else owner_id
+            for i, owner_id in enumerate(sorted(lobby.uploaded, key=lambda x: x), start=1):
+                nm = beat_display_name(lobby, owner_id, i)
                 beats.append(
                     {
                         "player_id": owner_id,
@@ -190,6 +191,8 @@ class LobbyManager:
             payload, _ = results_ws_payload_and_winner_user_ids(lobby, lobby_id)
             out["results"] = payload
         snap = lobby.lobby_snapshot()
+        # Include full snapshot fields needed by clients (WS match_resync / HTTP match_sync).
+        # drumkit carries seed for COOKING — omitting it breaks menu resume (MP_RESUME_SYNC).
         for key in (
             "player_count",
             "cook_finished",
@@ -201,10 +204,88 @@ class LobbyManager:
             "state",
             "spice",
             "cook_duration_min",
+            "anonymous_voting",
+            "is_public",
+            "drumkit",
         ):
             if key in snap:
                 out[key] = snap[key]
+        self.apply_connection_fields_to_snap(out)
         return out
+
+    def apply_connection_fields_to_snap(self, snap: dict[str, Any]) -> None:
+        """Augment each player row with WebSocket + grace info for roster UI."""
+        pl = snap.get("players")
+        if not isinstance(pl, list):
+            return
+        for row in pl:
+            if not isinstance(row, dict):
+                continue
+            pid = str(row.get("id", ""))
+            if not pid:
+                continue
+            has_ws = self.player_ws.get(pid) is not None
+            row["connected"] = has_ws
+            gt = self._grace_tasks.get(pid)
+            in_grace = gt is not None and not gt.done()
+            if not has_ws and in_grace:
+                row["grace_deadline_ts"] = self._grace_deadline_ts.get(pid)
+            else:
+                row["grace_deadline_ts"] = None
+
+    def snapshot_for_broadcast(self, lobby_id: str) -> dict[str, Any] | None:
+        lobby = self.lobbies.get(lobby_id)
+        if not lobby:
+            return None
+        snap = lobby.lobby_snapshot()
+        self.apply_connection_fields_to_snap(snap)
+        return snap
+
+    def pending_reconnect_for_user(self, user_id: int) -> dict[str, Any] | None:
+        """Seat kept after soft WS drop; user has no socket but grace task is running."""
+        now = time.time()
+        for pid, uid in list(self.auth_user_id.items()):
+            if uid != user_id:
+                continue
+            gt = self._grace_tasks.get(pid)
+            if gt is None or gt.done():
+                continue
+            if self.player_ws.get(pid) is not None:
+                continue
+            lid = self.player_lobby.get(pid)
+            if not lid:
+                continue
+            lobby = self.lobbies.get(lid)
+            if not lobby or pid not in lobby.players:
+                continue
+            if lobby.state == LobbyState.RESULTS:
+                continue
+            until = self._grace_deadline_ts.get(pid)
+            if until is None:
+                until = now + MP_WS_GRACE_S
+            remaining = max(0.0, until - now)
+            return {
+                "lobby_id": lid,
+                "player_id": pid,
+                "reconnect_until_ts": until,
+                "seconds_remaining": int(math.ceil(remaining)),
+            }
+        return None
+
+    async def abandon_reconnect_grace_for_user(self, user_id: int) -> None:
+        """HTTP: user forfeits reconnect (e.g. dismiss) — full disconnect like grace expiry."""
+        to_disconnect: list[str] = []
+        for pid, uid in list(self.auth_user_id.items()):
+            if uid != user_id:
+                continue
+            if self.player_ws.get(pid) is not None:
+                continue
+            gt = self._grace_tasks.get(pid)
+            if gt is None or gt.done():
+                continue
+            to_disconnect.append(pid)
+        for pid in to_disconnect:
+            await self.disconnect(pid)
 
     def attach_ws(self, player_id: str, ws: WebSocket) -> None:
         self.player_ws[player_id] = ws
@@ -236,11 +317,17 @@ class LobbyManager:
         gt = self._grace_tasks.pop(resume_player_id, None)
         if gt:
             gt.cancel()
+        self._grace_deadline_ts.pop(resume_player_id, None)
         if prev is not None and prev is not websocket:
             try:
                 await prev.close()
             except Exception:
                 pass
+        lid_resume = self.player_lobby.get(resume_player_id)
+        if lid_resume:
+            snap = self.snapshot_for_broadcast(lid_resume)
+            if snap:
+                await self.broadcast(lid_resume, {"type": "lobby_update", "lobby": snap})
         return True, None
 
     async def send_match_resync_to_player(self, player_id: str) -> None:
@@ -257,10 +344,29 @@ class LobbyManager:
         await self.send_to(player_id, {"type": "match_resync", **sync})
 
     async def detach_connection(self, player_id: str, ws: WebSocket) -> None:
-        """Socket closed: soft drop (keep seat) and start grace timer — same idea as Discord voice idle."""
+        """Socket closed: soft drop (keep seat) and start grace timer — same idea as Discord voice idle.
+
+        Pre-game (waiting / lobby / generating): treat like an intentional leave — full disconnect so
+        players can browse lobbies without a reconnect window.
+        """
         if self.player_ws.get(player_id) is not ws:
             return
         self.detach_ws(player_id)
+
+        pre_game_drop = False
+        async with self._lock:
+            lid = self.player_lobby.get(player_id)
+            lobby = self.lobbies.get(lid) if lid else None
+            if lobby is not None and player_id in lobby.players:
+                pre_game_drop = lobby.state in (
+                    LobbyState.WAITING,
+                    LobbyState.LOBBY,
+                    LobbyState.GENERATING,
+                )
+
+        if pre_game_drop:
+            await self.disconnect(player_id)
+            return
 
         async def _grace() -> None:
             await asyncio.sleep(MP_WS_GRACE_S)
@@ -271,7 +377,27 @@ class LobbyManager:
         old = self._grace_tasks.pop(player_id, None)
         if old:
             old.cancel()
+        self._grace_deadline_ts.pop(player_id, None)
         self._grace_tasks[player_id] = asyncio.create_task(_grace())
+        self._grace_deadline_ts[player_id] = time.time() + MP_WS_GRACE_S
+
+        lid_dc = self.player_lobby.get(player_id)
+        dc_name = ""
+        if lid_dc:
+            lobby_dc = self.lobbies.get(lid_dc)
+            if lobby_dc and player_id in lobby_dc.players:
+                dc_name = lobby_dc.players[player_id].name
+            await self.broadcast(
+                lid_dc,
+                {
+                    "type": "player_disconnected",
+                    "player_id": player_id,
+                    "name": dc_name,
+                },
+            )
+            snap_dc = self.snapshot_for_broadcast(lid_dc)
+            if snap_dc:
+                await self.broadcast(lid_dc, {"type": "lobby_update", "lobby": snap_dc})
 
     async def send_to(self, player_id: str, message: dict[str, Any]) -> None:
         ws = self.player_ws.get(player_id)
@@ -490,10 +616,9 @@ class LobbyManager:
                 "lobby_id": lobby_id,
             },
         )
-        await self.broadcast(
-            lobby_id,
-            {"type": "lobby_update", "lobby": self.lobbies[lobby_id].lobby_snapshot()},
-        )
+        snap = self.snapshot_for_broadcast(lobby_id)
+        if snap:
+            await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
 
     async def set_cook_duration(self, player_id: str, raw_minutes: Any) -> None:
         norm = normalize_cook_duration_min(raw_minutes)
@@ -523,10 +648,35 @@ class LobbyManager:
                 return
             lobby.cook_duration_min = norm
 
-        await self.broadcast(
-            lobby_id,
-            {"type": "lobby_update", "lobby": self.lobbies[lobby_id].lobby_snapshot()},
-        )
+        snap = self.snapshot_for_broadcast(lobby_id)
+        if snap:
+            await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
+
+    async def set_anonymous_voting(self, player_id: str, raw_enabled: Any) -> None:
+        enabled = coerce_bool(raw_enabled, default=False)
+        async with self._lock:
+            lobby_id = self.player_lobby.get(player_id)
+            if not lobby_id:
+                return
+            lobby = self.lobbies.get(lobby_id)
+            if not lobby or lobby.state != LobbyState.LOBBY:
+                await self.send_player_error(
+                    player_id,
+                    "You can only change this before the match starts.",
+                )
+                return
+            host_id = next(iter(lobby.players)) if lobby.players else None
+            if host_id != player_id:
+                await self.send_player_error(
+                    player_id,
+                    "Only the host can change anonymous voting.",
+                )
+                return
+            lobby.anonymous_voting = enabled
+
+        snap = self.snapshot_for_broadcast(lobby_id)
+        if snap:
+            await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
 
     async def kick_player(self, host_id: str, raw_target: Any) -> None:
         """Host-only, pre-game: kicked_from_lobby then normal disconnect cleanup."""
@@ -612,10 +762,9 @@ class LobbyManager:
             lobby_id,
             {"type": "player_ready", "player_id": player_id, "ready": True},
         )
-        await self.broadcast(
-            lobby_id,
-            {"type": "lobby_update", "lobby": self.lobbies[lobby_id].lobby_snapshot()},
-        )
+        snap = self.snapshot_for_broadcast(lobby_id)
+        if snap:
+            await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
         await self._try_start_game(lobby_id)
 
     async def _try_start_game(self, lobby_id: str) -> None:
@@ -637,9 +786,10 @@ class LobbyManager:
             lobby.votes.clear()
             lobby.votes_unlock_at = None
             cook_min = lobby.cook_duration_min
-            snap = lobby.lobby_snapshot()
 
-        await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
+        snap = self.snapshot_for_broadcast(lobby_id)
+        if snap:
+            await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
         await self.broadcast(
             lobby_id,
             {
@@ -798,6 +948,8 @@ class LobbyManager:
                 return
             pl = lobby.players.get(player_id)
             from_name = pl.name if pl else player_id
+            if lobby.anonymous_voting:
+                from_name = "Someone"
         await self.broadcast(
             lobby_id,
             {
@@ -859,6 +1011,7 @@ class LobbyManager:
             if lobby_snap:
                 snap_after = lobby_snap.lobby_snapshot()
         if snap_after is not None:
+            self.apply_connection_fields_to_snap(snap_after)
             await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap_after})
 
         should_finalize = False
@@ -891,7 +1044,6 @@ class LobbyManager:
 
     async def _rematch_to_new_lobby(self, old_id: str) -> None:
         new_id: str | None = None
-        new_snap: dict[str, Any] | None = None
         async with self._lock:
             old = self.lobbies.get(old_id)
             if not old or old.state != LobbyState.RESULTS:
@@ -904,6 +1056,7 @@ class LobbyManager:
                 spice=old.spice,
                 is_public=old.is_public,
                 cook_duration_min=old.cook_duration_min,
+                anonymous_voting=old.anonymous_voting,
             )
             for pid, p in old.players.items():
                 new_lobby.players[pid] = Player(
@@ -916,11 +1069,12 @@ class LobbyManager:
                 self.player_lobby[pid] = new_id
             self.lobbies[new_id] = new_lobby
             del self.lobbies[old_id]
-            new_snap = new_lobby.lobby_snapshot()
 
         self._delete_lobby_upload_dir_only(old_id)
-        if new_id is not None and new_snap is not None:
-            await self.broadcast(new_id, {"type": "lobby_update", "lobby": new_snap})
+        if new_id is not None:
+            new_snap = self.snapshot_for_broadcast(new_id)
+            if new_snap:
+                await self.broadcast(new_id, {"type": "lobby_update", "lobby": new_snap})
 
     async def rematch_vote(self, player_id: str) -> None:
         err: str | None = None
@@ -974,6 +1128,7 @@ class LobbyManager:
         gt = self._grace_tasks.pop(player_id, None)
         if gt:
             gt.cancel()
+        self._grace_deadline_ts.pop(player_id, None)
         lobby_id: str | None = None
         left_count = 0
         left_name = ""
@@ -1069,11 +1224,7 @@ class LobbyManager:
                 },
             )
 
-        snap = None
-        async with self._lock:
-            lobby_rem = self.lobbies.get(lobby_id)
-            if lobby_rem:
-                snap = lobby_rem.lobby_snapshot()
+        snap = self.snapshot_for_broadcast(lobby_id)
         if snap is not None:
             await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
 
@@ -1193,7 +1344,29 @@ class LobbyManager:
         for lid in to_drop:
             await self._purge_lobby(lid, remove_dir=True)
 
-    async def handle_message(self, player_id: str, data: dict[str, Any]) -> None:
+    async def handle_leave_lobby(self, player_id: str, websocket: WebSocket | None) -> bool:
+        """Pre-game: hard disconnect. In-match: soft detach (grace) — same as losing the socket."""
+        lid = self.player_lobby.get(player_id)
+        lobby = self.lobbies.get(lid) if lid else None
+        pre_game = False
+        if lobby is not None and player_id in lobby.players:
+            pre_game = lobby.state in (
+                LobbyState.WAITING,
+                LobbyState.LOBBY,
+                LobbyState.GENERATING,
+            )
+        if pre_game or lobby is None:
+            await self.disconnect(player_id)
+            return True
+        if websocket is None:
+            await self.disconnect(player_id)
+            return True
+        await self.detach_connection(player_id, websocket)
+        return True
+
+    async def handle_message(
+        self, player_id: str, data: dict[str, Any], websocket: WebSocket | None = None
+    ) -> bool:
         # WebSocket fan-in — one if/elif chain. Old clients still send weird stuff; stay forgiving.
         t = data.get("type")
         if t == "create_lobby":
@@ -1203,7 +1376,7 @@ class LobbyManager:
                     player_id,
                     "Invalid spices. Send spices: [0.25, 0.5, ...].",
                 )
-                return
+                return False
             is_public = coerce_bool(data.get("is_public"), default=True)
             await self.create_lobby(player_id, str(data.get("name", "")), spices, is_public)
         elif t == "join_lobby":
@@ -1229,14 +1402,15 @@ class LobbyManager:
                     "Use create_lobby or join_lobby with lobby_id / lobby_code.",
                 )
         elif t == "leave_lobby":
-            # Hard leave — not the same as losing the socket (that one is soft / grace)
-            await self.disconnect(player_id)
+            return await self.handle_leave_lobby(player_id, websocket)
         elif t == "player_ready":
             await self.player_ready(player_id)
         elif t == "kick_player":
             await self.kick_player(player_id, data.get("target_player_id"))
         elif t == "set_cook_duration":
             await self.set_cook_duration(player_id, data.get("minutes"))
+        elif t == "set_anonymous_voting":
+            await self.set_anonymous_voting(player_id, data.get("enabled"))
         elif t == "cook_finished":
             await self.player_cook_finished(player_id)
         elif t == "rematch_vote":
@@ -1264,3 +1438,4 @@ class LobbyManager:
                 f"Unknown message type: {label}",
                 error_code="UNKNOWN_MESSAGE_TYPE",
             )
+        return False

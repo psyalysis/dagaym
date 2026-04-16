@@ -2,6 +2,7 @@
  * Join a lobby by typing its code (public or private).
  */
 import { getUsername } from "../authApi.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountMatchmakingScreen } from "./matchmaking.js";
@@ -9,6 +10,7 @@ import { mountMatchmakingScreen } from "./matchmaking.js";
 export function mountJoinCodeScreen(root, ctx) {
   const displayName = (ctx.username || ctx.mpName || getUsername() || "Player").trim();
 
+  setAppErrorContext({ screen: "Join by code", phase: "Enter lobby code" });
   mountAuthCornerLeave(ctx);
 
   root.innerHTML = `

@@ -2,6 +2,7 @@
  * New account — then you still have to log in after.
  */
 import { registerUser } from "../authApi.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerRegisterGuest } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountLoginScreen } from "./loginScreen.js";
@@ -9,6 +10,7 @@ import { mountLoginScreen } from "./loginScreen.js";
 const USER_RE = /^[a-z0-9_]{3,20}$/;
 
 export function mountRegisterScreen(root, ctx) {
+  setAppErrorContext({ screen: "Register", phase: "New account" });
   root.innerHTML = `
     <div class="screen register-screen arcade-panel screen--vert-center">
       <div class="screen-topbar">

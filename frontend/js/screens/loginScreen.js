@@ -2,6 +2,7 @@
  * Log in — user/pass, JWT lives in localStorage like the rest of the app.
  */
 import { loginUser } from "../authApi.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLoginGuest } from "../authCorner.js";
 import { initDevStatsPanel } from "../devStatsPanel.js";
 import { refreshSupportersFromApi } from "../supporters.js";
@@ -9,6 +10,7 @@ import { playSfxMajor } from "../sfx.js";
 import { mountModeSelectScreen } from "./modeSelect.js";
 
 export function mountLoginScreen(root, ctx) {
+  setAppErrorContext({ screen: "Login", phase: "Sign in" });
   root.innerHTML = `
     <div class="screen login-screen arcade-panel screen--vert-center">
       <div class="screen-topbar">

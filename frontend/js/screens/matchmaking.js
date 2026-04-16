@@ -3,15 +3,19 @@
  */
 import { getUsername, validateSession } from "../authApi.js";
 import { getWsUrl } from "../apiOrigin.js";
-import { notifyMpServerError, showAppError } from "../errorToast.js";
+import { notifyMpServerError, setAppErrorContext, showAppError } from "../errorToast.js";
 import { showServerRestartingWait } from "../serverRestartOverlay.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { mountLobbyScreen } from "./lobby.js";
 
 export function mountMatchmakingScreen(root, ctx) {
-  const name = (ctx.username || ctx.mpName || getUsername() || "Player").trim();
   const flow =
     ctx.lobbyFlow || (ctx.lobbyCode ? "join_code" : ctx.joinLobbyId ? "join_id" : "create");
+  const phaseLabel =
+    flow === "create" ? "Creating lobby" : flow === "join_id" ? "Joining from server list" : "Joining with code";
+  setAppErrorContext({ screen: "Matchmaking", phase: phaseLabel });
+
+  const name = (ctx.username || ctx.mpName || getUsername() || "Player").trim();
   const spices =
     Array.isArray(ctx.mpSpices) && ctx.mpSpices.length > 0
       ? ctx.mpSpices
@@ -62,16 +66,20 @@ export function mountMatchmakingScreen(root, ctx) {
     if (statusEl) statusEl.textContent = msg;
   };
 
-  const failWithToast = (msg, code) => {
+  const failWithToast = (msg, code, hint) => {
     setStatus(msg);
-    showAppError({ message: msg, errorCode: code ?? null });
+    showAppError({ message: msg, errorCode: code ?? null, hint: hint ?? undefined });
   };
 
   void (async () => {
     const ok = await validateSession();
     if (cancelled) return;
     if (!ok) {
-      failWithToast("Session expired. Please log in again.", "SESSION");
+      failWithToast(
+        "Your login session expired. Sign in again, then try creating or joining a lobby.",
+        "SESSION",
+        "Use the menu to log in if you see a guest screen.",
+      );
       return;
     }
 
@@ -87,13 +95,21 @@ export function mountMatchmakingScreen(root, ctx) {
     };
 
     ws.onerror = () => {
-      failWithToast("WebSocket error. Is the server running?", "WS_ERROR");
+      failWithToast(
+        "Could not connect to the game server.",
+        "WS_ERROR",
+        "If you are running the game locally, start the backend. Otherwise wait a moment and try again.",
+      );
     };
 
     ws.onclose = (ev) => {
       if (handedOffWs) return;
       if (ev.code === 4401) {
-        failWithToast("Session expired or not logged in. Please log in again.", "WS_4401");
+        failWithToast(
+          "You are not logged in, or your session expired.",
+          "WS_4401",
+          "Sign in from the main menu and open multiplayer again.",
+        );
         return;
       }
       if (ev.code === 1006 || ev.code === 1012) {
@@ -101,7 +117,11 @@ export function mountMatchmakingScreen(root, ctx) {
         showServerRestartingWait();
         return;
       }
-      failWithToast("Connection closed. Try again.", `WS_CLOSE_${ev.code}`);
+      failWithToast(
+        "The connection closed before you reached the lobby.",
+        `WS_CLOSE_${ev.code}`,
+        "Try again. If it keeps happening, refresh the page.",
+      );
     };
 
     ws.onmessage = (ev) => {
@@ -127,7 +147,11 @@ export function mountMatchmakingScreen(root, ctx) {
         } else if (lobbyCode) {
           ws?.send(JSON.stringify({ type: "join_lobby", name, lobby_code: lobbyCode }));
         } else {
-          failWithToast("Missing lobby id or code.", "MM_CONFIG");
+          failWithToast(
+            "The app could not find a lobby to join (missing id or code).",
+            "MM_CONFIG",
+            "Go back and pick a server, or enter a lobby code.",
+          );
         }
         return;
       }

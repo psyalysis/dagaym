@@ -3,13 +3,14 @@
  */
 import { authHeadersMultipart } from "../authApi.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
-import { notifyMpServerError, showAppError } from "../errorToast.js";
+import { notifyMpServerError, setAppErrorContext, showAppError } from "../errorToast.js";
 import { dismissServerRestartingWait, showServerRestartingWait } from "../serverRestartOverlay.js";
 import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
 import { runMpWsReconnect } from "../mpReconnect.js";
 import { saveMpSeat } from "../mpSeatStorage.js";
 import {
   navigateToMenuAfterLobbyDissolved,
+  notifyMpPlayerDisconnected,
   notifyMpPlayerJoin,
   notifyMpPlayerLeave,
 } from "../mpPresenceToast.js";
@@ -30,6 +31,7 @@ import { mountVotingSlideshowScreen } from "./votingSlideshow.js";
 const UPLOAD_WINDOW_SEC = 120;
 
 export function mountUploadScreen(root, ctx) {
+  setAppErrorContext({ screen: "Upload", phase: "Upload beat before time runs out" });
   if (!ctx.mpWs || ctx.mpWs.readyState !== WebSocket.OPEN) {
     import("./multiplayerHub.js").then((m) => ctx.navigate(m.mountMultiplayerHubScreen));
     return () => {};
@@ -70,6 +72,7 @@ export function mountUploadScreen(root, ctx) {
       </div>
       <p class="arcade-hint">2:00 · MP3 or WAV · max 30MB</p>
       <p class="arcade-hint upload-hint-muted">After time runs out you can still vote and listen, but others won’t hear your beat.</p>
+      <p class="arcade-hint upload-hint-muted hidden" id="upload-on-server">Your beat is already on the server.</p>
       <form id="upload-form" class="upload-form">
         <input type="file" id="beat-file" accept=".mp3,.wav,audio/mpeg,audio/wav" required />
         <button type="submit" class="arcade-btn arcade-btn-primary" id="upload-submit">Upload</button>
@@ -86,12 +89,41 @@ export function mountUploadScreen(root, ctx) {
   let lobbyView = normalizeLobbyLike({});
   const syncProgressHint = () => syncMatchProgressHint(root, "mp-corner-upload", "upload", lobbyView);
 
+  const selfUploaded = () =>
+    lobbyView.uploaded.some((id) => String(id) === String(playerId));
+
+  const syncSelfUploadUi = () => {
+    const formEl = root.querySelector("#upload-form");
+    const fileIn = root.querySelector("#beat-file");
+    const submitBtn = root.querySelector("#upload-submit");
+    const onServer = root.querySelector("#upload-on-server");
+    if (!selfUploaded()) {
+      formEl?.classList.remove("upload-form--on-server");
+      if (onServer instanceof HTMLElement) onServer.classList.add("hidden");
+      if (fileIn instanceof HTMLInputElement) fileIn.required = true;
+      if (submitBtn instanceof HTMLButtonElement) submitBtn.textContent = "Upload";
+      return;
+    }
+    formEl?.classList.add("upload-form--on-server");
+    if (onServer instanceof HTMLElement) onServer.classList.remove("hidden");
+    if (fileIn instanceof HTMLInputElement) fileIn.required = false;
+    if (statusEl) {
+      const n = Math.max(1, lobbyView.player_count || lobbyView.players.length);
+      const u = lobbyView.uploaded.filter((id) => lobbyView.players.some((p) => String(p.id) === String(id))).length;
+      statusEl.textContent = `Uploaded. Waiting for others (${u}/${n})…`;
+    }
+    if (submitBtn instanceof HTMLButtonElement) {
+      submitBtn.textContent = "Replace beat";
+    }
+  };
+
   void (async () => {
     const sync = await fetchMatchSync(String(lobbyId));
     const L = lobbyLikeFromMatchSync(sync);
-    if (L && Array.isArray(L.players) && L.players.length) {
+    if (L) {
       lobbyView = normalizeLobbyLike(L);
       syncProgressHint();
+      syncSelfUploadUi();
     }
   })();
 
@@ -118,9 +150,10 @@ export function mountUploadScreen(root, ctx) {
     (sync) => {
       if (!httpNavigated && !preserveWs) {
         const L = lobbyLikeFromMatchSync(sync);
-        if (L && Array.isArray(L.players) && L.players.length) {
+        if (L) {
           lobbyView = normalizeLobbyLike(L);
           syncProgressHint();
+          syncSelfUploadUi();
         }
       }
       if (httpNavigated || preserveWs) return;
@@ -169,15 +202,15 @@ export function mountUploadScreen(root, ctx) {
       }
       lobbyView = applyMatchWsToLobby(lobbyView, { type: "beat_uploaded", player_id: playerId });
       syncProgressHint();
-      if (statusEl) {
-        const n = Math.max(1, lobbyView.player_count || lobbyView.players.length);
-        const u = lobbyView.uploaded.filter((id) => lobbyView.players.some((p) => p.id === id)).length;
-        statusEl.textContent = `Uploaded. Waiting for others (${u}/${n})…`;
-      }
+      syncSelfUploadUi();
     } catch (err) {
       const um = err instanceof Error ? err.message : "Upload failed";
       if (statusEl) statusEl.textContent = um;
-      showAppError({ message: `Upload failed: ${um}`, errorCode: "UPLOAD_FETCH" });
+      showAppError({
+        message: `Upload failed: ${um}`,
+        hint: "Check your connection and file size, then try again.",
+        errorCode: "UPLOAD_FETCH",
+      });
     }
   });
 
@@ -201,6 +234,7 @@ export function mountUploadScreen(root, ctx) {
     }
     notifyMpPlayerJoin(m, playerId);
     notifyMpPlayerLeave(m, playerId);
+    notifyMpPlayerDisconnected(m, playerId);
     if (
       m.type === "lobby_update" ||
       m.type === "cook_finished_update" ||
@@ -209,11 +243,7 @@ export function mountUploadScreen(root, ctx) {
     ) {
       lobbyView = applyMatchWsToLobby(lobbyView, m);
       syncProgressHint();
-      if (m.type === "beat_uploaded" && statusEl && statusEl.textContent.includes("Uploaded")) {
-        const n = Math.max(1, lobbyView.player_count || lobbyView.players.length);
-        const u = lobbyView.uploaded.filter((id) => lobbyView.players.some((p) => p.id === id)).length;
-        statusEl.textContent = `Uploaded. Waiting for others (${u}/${n})…`;
-      }
+      syncSelfUploadUi();
     }
     if (m.type === "error") {
       mpChatHandleErrorPayload(m);

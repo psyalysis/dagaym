@@ -34,7 +34,13 @@ def test_rematch_migrates_to_new_lobby_and_broadcasts(tmp_path: Path) -> None:
         old_id = "C0FFEE"
         p1 = "playerOneIdxx"
         p2 = "playerTwoIdxx"
-        lobby = Lobby(id=old_id, spice=0.85, is_public=False, cook_duration_min=20)
+        lobby = Lobby(
+            id=old_id,
+            spice=0.85,
+            is_public=False,
+            cook_duration_min=20,
+            anonymous_voting=True,
+        )
         lobby.state = LobbyState.RESULTS
         lobby.players[p1] = Player(id=p1, name="A", user_id=10, wins=3, ready=False)
         lobby.players[p2] = Player(id=p2, name="B", user_id=20, wins=1, ready=True)
@@ -73,6 +79,7 @@ def test_rematch_migrates_to_new_lobby_and_broadcasts(tmp_path: Path) -> None:
         assert new_lobby.spice == 0.85
         assert new_lobby.is_public is False
         assert new_lobby.cook_duration_min == 20
+        assert new_lobby.anonymous_voting is True
         assert new_lobby.players[p1].wins == 3
         assert new_lobby.players[p2].wins == 1
         assert new_lobby.players[p1].ready is False

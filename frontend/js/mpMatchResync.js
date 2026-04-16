@@ -1,11 +1,36 @@
+import { authBearerOnly } from "./authApi.js";
+
 /**
  * Apply server ``match_resync`` (same shape as HTTP match_sync) after WS resume.
  * Uses dynamic imports to avoid circular deps with screens.
  * @param {object} ctx
  * @param {Record<string, unknown>} m
- * @param {"lobby"|"cook"|"upload"|"voting_slideshow"|"vote_selection"|"results"} screenId
+ * @param {"lobby"|"cook"|"upload"|"voting_slideshow"|"vote_selection"|"results"|"menu_resume"} screenId
  * @returns {Promise<boolean>} true if navigated to another screen
  */
+
+/**
+ * @param {string | undefined} apiBase
+ * @param {string} lobbyId
+ */
+async function fetchKitMetaForResume(apiBase, lobbyId) {
+  const base = String(apiBase || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const lid = String(lobbyId || "").trim();
+  if (!base || !lid) return null;
+  try {
+    const res = await fetch(`${base}/api/lobby/${encodeURIComponent(lid)}/kit`, {
+      headers: authBearerOnly(),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && typeof data === "object" ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function applyMatchResyncFromPayload(ctx, m, screenId) {
   if (m.type !== "match_resync") return false;
   const lid = String(m.lobby_id ?? "");
@@ -18,7 +43,7 @@ export async function applyMatchResyncFromPayload(ctx, m, screenId) {
   const pid = String(ctx.playerId ?? "");
   const st = String(m.match_state ?? "");
 
-  if (st === "lobby" || st === "generating") {
+  if (st === "lobby" || st === "generating" || st === "waiting") {
     if (screenId === "lobby") return false;
     const { mountLobbyScreen } = await import("./screens/lobby.js");
     const lobbyLike = {
@@ -52,8 +77,15 @@ export async function applyMatchResyncFromPayload(ctx, m, screenId) {
   if (st === "cooking") {
     if (screenId === "cook") return false;
     const drum = m.drumkit && typeof m.drumkit === "object" ? m.drumkit : {};
-    const seed = Number(drum.seed);
-    const spice = Number(m.spice);
+    let seed = Number(drum.seed);
+    let spice = Number(m.spice);
+    if ((!Number.isFinite(seed) || !Number.isFinite(spice)) && ctx.apiBase) {
+      const kit = await fetchKitMetaForResume(ctx.apiBase, lid);
+      if (kit) {
+        if (!Number.isFinite(seed)) seed = Number(kit.seed);
+        if (!Number.isFinite(spice)) spice = Number(kit.spice);
+      }
+    }
     if (!Number.isFinite(seed) || !Number.isFinite(spice)) return false;
     const { mountCookScreen } = await import("./screens/cook.js");
     ctx.navigate(mountCookScreen, {
@@ -64,6 +96,7 @@ export async function applyMatchResyncFromPayload(ctx, m, screenId) {
       spice,
       sounds: ctx.sounds && typeof ctx.sounds === "object" ? ctx.sounds : {},
       cookDurationMin: Number(m.cook_duration_min) || 10,
+      skipSynthReveal: true,
     });
     return true;
   }
@@ -127,7 +160,7 @@ export function mergeMatchResyncIntoLobby(m, lobby) {
   const lid = String(m.lobby_id ?? "");
   if (!lid || lid !== String(lobby?.lobby_id ?? "")) return lobby;
   const st = String(m.match_state ?? "");
-  if (st !== "lobby" && st !== "generating") return lobby;
+  if (st !== "lobby" && st !== "generating" && st !== "waiting") return lobby;
   return {
     ...lobby,
     lobby_id: lid,

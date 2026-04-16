@@ -2,6 +2,7 @@
  * Open games from /api/lobbies — tap one to join by id.
  */
 import { getUsername } from "../authApi.js";
+import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { getApiBase } from "../apiOrigin.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
@@ -19,6 +20,7 @@ export function mountServerBrowserScreen(root, ctx) {
   const name = (ctx.username || ctx.mpName || getUsername() || "Player").trim();
   let pollId = 0;
 
+  setAppErrorContext({ screen: "Server browser", phase: "Public lobbies list" });
   mountAuthCornerLeave(ctx);
 
   root.innerHTML = `

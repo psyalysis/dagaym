@@ -3,6 +3,7 @@
  */
 import { mountAuthCornerLeave } from "./authCorner.js";
 import { getApiBase } from "./apiOrigin.js";
+import { setAppErrorContext } from "./errorToast.js";
 import {
   fetchKitManifest,
   KIT_SOUND_FILE_EXT,
@@ -58,6 +59,7 @@ function resolveApiBase(ctx) {
 }
 
 export function mountSoloScreen(root, ctx) {
+  setAppErrorContext({ screen: "Solo cook", phase: "Offline kit" });
   const apiBase = resolveApiBase(ctx);
   const waveSurfers = new Map();
   const audioSrcByKey = new Map();

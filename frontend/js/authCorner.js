@@ -240,6 +240,14 @@ export function mountAuthCornerLeave(ctx) {
   `;
   el.querySelector("#auth-corner-leave")?.addEventListener("click", () => {
     playSfxMinor();
+    const ws = ctx.mpWs;
+    if (ws instanceof WebSocket && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "leave_lobby" }));
+      } catch {
+        /* ignore */
+      }
+    }
     import("./screens/modeSelect.js").then((m) => ctx.navigate(m.mountModeSelectScreen));
   });
 }
