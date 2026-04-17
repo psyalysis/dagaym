@@ -417,6 +417,20 @@ async def list_public_lobbies(request: Request) -> list[dict[str, Any]]:
     return await manager.public_lobby_list()
 
 
+@app.get("/api/lobbies/joinable/{lobby_id}")
+async def check_public_lobby_joinable(
+    lobby_id: str, request: Request
+) -> dict[str, Any]:
+    """Preflight for server-browser join — same visibility as GET /api/lobbies (no extra leaks)."""
+    raw = (lobby_id or "").strip()
+    if len(raw) < 3 or len(raw) > 32:
+        raise HTTPException(status_code=404, detail="Lobby not available.")
+    manager: LobbyManager = request.app.state.manager
+    if await manager.is_public_lobby_joinable(raw):
+        return {"ok": True, "lobby_id": raw}
+    raise HTTPException(status_code=404, detail="Lobby not available.")
+
+
 @app.get(
     "/api/lobby/{lobby_id}/kit",
     response_class=ORJSONResponse,

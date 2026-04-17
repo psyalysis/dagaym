@@ -553,6 +553,7 @@ class LobbyManager:
                 await self.send_player_error(
                     player_id,
                     "That match already started or ended.",
+                    error_code="MP_LOBBY_NOT_JOINABLE",
                 )
                 return
             if len(lobby.players) >= MAX_LOBBY_PLAYERS:
@@ -600,6 +601,7 @@ class LobbyManager:
                 await self.send_player_error(
                     player_id,
                     "That match already started or ended.",
+                    error_code="MP_LOBBY_NOT_JOINABLE",
                 )
                 return
             if len(lobby.players) >= MAX_LOBBY_PLAYERS:
@@ -618,15 +620,30 @@ class LobbyManager:
 
         await self._emit_join_snapshots(lobby.id, player_id, display_name)
 
+    def _lobby_is_public_joinable(self, lobby: Lobby) -> bool:
+        """Same rules as `public_lobby_list` — single source of truth for browser joins."""
+        if lobby.state != LobbyState.LOBBY:
+            return False
+        if not lobby.is_public:
+            return False
+        if len(lobby.players) >= MAX_LOBBY_PLAYERS:
+            return False
+        return True
+
+    async def is_public_lobby_joinable(self, lobby_id: str) -> bool:
+        """Preflight for public list joins; does not leak private lobbies (False if not listable)."""
+        async with self._lock:
+            key = self._resolve_lobby_key(lobby_id)
+            if key is None:
+                return False
+            lobby = self.lobbies[key]
+            return self._lobby_is_public_joinable(lobby)
+
     async def public_lobby_list(self) -> list[dict[str, Any]]:
         async with self._lock:
             out: list[dict[str, Any]] = []
             for lid, L in self.lobbies.items():
-                if L.state != LobbyState.LOBBY:
-                    continue
-                if not L.is_public:
-                    continue
-                if len(L.players) >= MAX_LOBBY_PLAYERS:
+                if not self._lobby_is_public_joinable(L):
                     continue
                 out.append(
                     {

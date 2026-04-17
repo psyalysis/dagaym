@@ -249,7 +249,9 @@ export function notifyMpServerError(m) {
         ? "Too many actions in a short time. Wait a few seconds and try again."
         : code === "BAD_JSON" || code === "BAD_MESSAGE_SHAPE"
           ? "The app sent an invalid message. Try refreshing the page."
-          : `The server could not complete that action: ${rawMsg}`;
+          : code === "MP_LOBBY_NOT_JOINABLE"
+            ? "That lobby is no longer open for joining — the match may have started or the lobby filled."
+            : `The server could not complete that action: ${rawMsg}`;
   const extraLines = [`Server message: ${rawMsg}`];
   showAppError({
     message: friendly,

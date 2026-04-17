@@ -5,6 +5,8 @@ import { getUsername } from "../authApi.js";
 import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
 import { getApiBase } from "../apiOrigin.js";
+import { fetchPublicLobbyJoinable } from "../publicLobbyApi.js";
+import { showAppError } from "../errorToast.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountMatchmakingScreen } from "./matchmaking.js";
 
@@ -75,11 +77,26 @@ export function mountServerBrowserScreen(root, ctx) {
       if (tableEl)
         tableEl.innerHTML = `<div class="server-table">${header}${body}</div>`;
       tableEl?.querySelectorAll(".server-join-btn").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
+        btn.addEventListener("click", async (e) => {
           const el = /** @type {HTMLElement} */ (e.currentTarget);
           const row = el.closest("[data-lid]");
           const lid = row?.getAttribute("data-lid");
           if (!lid) return;
+          el.setAttribute("disabled", "true");
+          const ok = await fetchPublicLobbyJoinable(lid);
+          el.removeAttribute("disabled");
+          if (!ok) {
+            if (statusEl) statusEl.textContent = "That lobby is gone or already started — refreshing";
+            showAppError({
+              message:
+                "That lobby is no longer open. The list will refresh — try another or wait for a new game.",
+              hint: "Games can start between refreshes; this is normal.",
+              errorCode: "SB_STALE_LOBBY",
+              source: "client",
+            });
+            await load();
+            return;
+          }
           playSfxMajor();
           ctx.navigate(mountMatchmakingScreen, {
             mpName: name,
@@ -98,7 +115,7 @@ export function mountServerBrowserScreen(root, ctx) {
   };
 
   load();
-  pollId = window.setInterval(load, 4000);
+  pollId = window.setInterval(load, 2500);
 
   root.querySelector("#sb-back")?.addEventListener("click", () => {
     playSfxMinor();

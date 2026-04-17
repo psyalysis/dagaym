@@ -3,6 +3,7 @@
  */
 import { getUsername, validateSession } from "../authApi.js";
 import { getWsUrl } from "../apiOrigin.js";
+import { fetchPublicLobbyJoinable } from "../publicLobbyApi.js";
 import {
   notifyMpServerError,
   setAppErrorContext,
@@ -156,9 +157,27 @@ export function mountMatchmakingScreen(root, ctx) {
             }),
           );
         } else if (flow === "join_id" && joinLobbyId) {
-          ws?.send(
-            JSON.stringify({ type: "join_lobby", name, lobby_id: joinLobbyId }),
-          );
+          void (async () => {
+            const ok = await fetchPublicLobbyJoinable(joinLobbyId);
+            if (cancelled || !ws) return;
+            if (!ok) {
+              handedOffWs = true;
+              try {
+                ws.close();
+              } catch {
+                /* ignore */
+              }
+              failWithToast(
+                "That lobby closed before you joined. Open the server list and try again.",
+                "MM_STALE_LOBBY",
+                "The list updates often; pick a lobby and join right away.",
+              );
+              return;
+            }
+            ws.send(
+              JSON.stringify({ type: "join_lobby", name, lobby_id: joinLobbyId }),
+            );
+          })();
         } else if (lobbyCode) {
           ws?.send(
             JSON.stringify({ type: "join_lobby", name, lobby_code: lobbyCode }),
