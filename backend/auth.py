@@ -135,9 +135,11 @@ def _cached_user_put(user: User) -> None:
         _user_cache[user.id] = (user, time.monotonic() + _USER_CACHE_TTL_S)
 
 
-def invalidate_user_cache(user_id: int) -> None:
+def invalidate_user_cache(*user_ids: int) -> None:
+    """Drop cache entries after a write (win increment, profile change, etc.)."""
     with _user_cache_lock:
-        _user_cache.pop(user_id, None)
+        for uid in user_ids:
+            _user_cache.pop(uid, None)
 
 
 def increment_wins_for_users(db: Session, user_ids: list[int]) -> None:
@@ -150,8 +152,8 @@ def increment_wins_for_users(db: Session, user_ids: list[int]) -> None:
         if u is not None:
             u.wins += 1
     db.commit()
-    for uid in seen:
-        invalidate_user_cache(uid)
+    # Bust cache so subsequent /me or leaderboard reads see updated wins.
+    invalidate_user_cache(*seen)
 
 
 def get_current_user(
@@ -213,6 +215,7 @@ def try_validate_ws_token(
             return None, "user_not_found"
         if user.username != un:
             return None, "username_mismatch"
+        _cached_user_put(user)
         return (uid, user.username), None
     finally:
         db.close()

@@ -58,9 +58,12 @@ async def cook_loop(manager: LobbyManager, lobby_id: str) -> None:
 
     early_all_done = False
     try:
-        # HUD does local 1s countdown; server sends periodic sync nudges.
+        # Broadcast every SYNC_INTERVAL_S seconds (not every 1 s — client runs its own
+        # local countdown from cook_deadline_ts; these are drift-correction syncs).
+        SYNC_INTERVAL_S = 5
         for remaining in range(duration_s, -1, -1):
-            if remaining == duration_s or remaining % 5 == 0:
+            # Broadcast on first tick, last tick, and every SYNC_INTERVAL_S seconds.
+            if remaining == duration_s or remaining == 0 or remaining % SYNC_INTERVAL_S == 0:
                 await manager.broadcast(
                     lobby_id,
                     {
