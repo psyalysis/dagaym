@@ -5,6 +5,39 @@
 export const RANK_BASELINE_KEY = "cookup_match_rank_index";
 export const RANK_PENDING_KEY = "cookup_pending_rank_up";
 
+const RANK_SEEN_KEYS = "cookup_rank_seen_keys";
+
+/** @returns {Set<string>} */
+function loadSeenRankKeys() {
+  try {
+    const raw = localStorage.getItem(RANK_SEEN_KEYS);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** @param {string} rankKey */
+export function hasSeenRankUp(rankKey) {
+  const k = String(rankKey || "").trim();
+  if (!k) return false;
+  return loadSeenRankKeys().has(k);
+}
+
+/** @param {string} rankKey */
+export function markRankUpSeen(rankKey) {
+  const k = String(rankKey || "").trim();
+  if (!k) return;
+  const keys = loadSeenRankKeys();
+  keys.add(k);
+  try {
+    localStorage.setItem(RANK_SEEN_KEYS, JSON.stringify([...keys]));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -52,6 +85,7 @@ export function showRankUpOverlay(payload) {
   `;
 
   const close = () => {
+    markRankUpSeen(String(payload?.key || ""));
     wrap.classList.add("rank-up-overlay--out");
     window.setTimeout(() => wrap.remove(), 320);
   };

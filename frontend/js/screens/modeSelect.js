@@ -9,7 +9,11 @@ import {
   fetchMpReconnectPending,
   shouldShowReconnectOverlay,
 } from "../mpReconnectPending.js";
-import { RANK_PENDING_KEY, showRankUpOverlay } from "../rankUi.js";
+import {
+  hasSeenRankUp,
+  RANK_PENDING_KEY,
+  showRankUpOverlay,
+} from "../rankUi.js";
 import { mountAuthCornerGuest, mountAuthCornerMenu } from "../authCorner.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountSoloScreen } from "../solo.js";
@@ -144,7 +148,10 @@ export function mountModeSelectScreen(root, ctx) {
     if (raw) {
       sessionStorage.removeItem(RANK_PENDING_KEY);
       const data = JSON.parse(raw);
-      if (data && typeof data === "object") showRankUpOverlay(data);
+      if (data && typeof data === "object") {
+        const k = data.key != null ? String(data.key) : "";
+        if (!k || !hasSeenRankUp(k)) showRankUpOverlay(data);
+      }
     }
   } catch {
     /* ignore */

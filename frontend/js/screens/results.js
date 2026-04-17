@@ -5,13 +5,12 @@ import { authHeadersMultipart, fetchMe } from "../authApi.js";
 import { getApiBase } from "../apiOrigin.js";
 import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
-import { RANK_BASELINE_KEY, RANK_PENDING_KEY } from "../rankUi.js";
 import {
-  dismissServerRestartingWait,
-  showServerRestartingWait,
-} from "../serverRestartOverlay.js";
+  hasSeenRankUp,
+  RANK_BASELINE_KEY,
+  RANK_PENDING_KEY,
+} from "../rankUi.js";
 import { applyMatchResyncFromPayload } from "../mpMatchResync.js";
-import { runMpWsReconnect } from "../mpReconnect.js";
 import { clearMpSeat, saveMpSeat } from "../mpSeatStorage.js";
 import {
   clearMpChatSession,
@@ -339,27 +338,22 @@ export function mountResultsScreen(root, ctx) {
     }
   };
 
-  const onResultsSocketClose = (ev) => {
+  const onResultsSocketClose = () => {
     if (teardownClose || preserveWs) return;
-    showServerRestartingWait();
-    dismissServerRestartingWait();
-    void runMpWsReconnect(ev, {
-      ctx,
-      intentionalLeave: () => teardownClose,
-      preserveWs: () => preserveWs,
-      onReplaceSocket: (nw) => {
-        ctx.mpWs = nw;
-        unmountMpChat();
-        unmountMpChat = mountMpChat({
-          ws: nw,
-          getWs: () => ctx.mpWs,
-          playerId,
-          continueSession: true,
-        });
-        nw.onmessage = onResultsSocketMessage;
-        nw.addEventListener("close", onResultsSocketClose, { once: true });
-      },
-    });
+    clearMpSeat();
+    ctx.mpWs = null;
+    unmountMpChat();
+    unmountMpChat = () => {};
+    const rematchBtn = root.querySelector("#results-rematch-btn");
+    const rematchHintEl = root.querySelector("#results-rematch-hint");
+    if (rematchBtn instanceof HTMLButtonElement) {
+      rematchBtn.disabled = true;
+      rematchBtn.classList.add("hidden");
+    }
+    if (rematchHintEl) {
+      rematchHintEl.classList.remove("hidden");
+      rematchHintEl.textContent = "Disconnected.";
+    }
   };
 
   if (ctx.mpWs instanceof WebSocket) {
@@ -406,7 +400,11 @@ export function mountResultsScreen(root, ctx) {
     try {
       const me = await fetchMe();
       const after = Number(me.rank_index ?? 0);
-      if (after > before && me.rank) {
+      if (
+        after > before &&
+        me.rank &&
+        !hasSeenRankUp(String(me.rank.key ?? ""))
+      ) {
         sessionStorage.setItem(
           RANK_PENDING_KEY,
           JSON.stringify({
