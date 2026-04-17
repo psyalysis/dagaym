@@ -411,10 +411,17 @@ def get_leaderboard(db: Session = Depends(get_db)) -> list[LeaderboardEntry]:
 
 
 @app.get("/api/lobbies")
-async def list_public_lobbies(request: Request) -> list[dict[str, Any]]:
+async def list_public_lobbies(request: Request) -> ORJSONResponse:
     """Joinable public lobbies (pre-game, not full)."""
     manager: LobbyManager = request.app.state.manager
-    return await manager.public_lobby_list()
+    data = await manager.public_lobby_list()
+    return ORJSONResponse(
+        content=data,
+        headers={
+            "Cache-Control": "private, no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/api/lobbies/joinable/{lobby_id}")
@@ -427,7 +434,13 @@ async def check_public_lobby_joinable(
         raise HTTPException(status_code=404, detail="Lobby not available.")
     manager: LobbyManager = request.app.state.manager
     if await manager.is_public_lobby_joinable(raw):
-        return {"ok": True, "lobby_id": raw}
+        return ORJSONResponse(
+            content={"ok": True, "lobby_id": raw},
+            headers={
+                "Cache-Control": "private, no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+            },
+        )
     raise HTTPException(status_code=404, detail="Lobby not available.")
 
 

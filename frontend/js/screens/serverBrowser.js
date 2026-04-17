@@ -18,9 +18,23 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+/** Drop rows that are not actually joinable (stale cache, race, or bad payload). */
+function rowIsJoinable(/** @type {Record<string, unknown>} */ r) {
+  const st = r.state != null ? String(r.state) : "lobby";
+  if (st !== "lobby") return false;
+  const max = Number(r.max_players) || 12;
+  const pc = Number(r.player_count);
+  const slots = r.slots_remaining;
+  if (Number.isFinite(Number(slots))) return Number(slots) > 0;
+  if (Number.isFinite(pc) && Number.isFinite(max)) return pc < max;
+  return true;
+}
+
 export function mountServerBrowserScreen(root, ctx) {
   const name = (ctx.username || ctx.mpName || getUsername() || "Player").trim();
   let pollId = 0;
+  /** Cancels any in-flight list fetch so an older response cannot overwrite a newer one. */
+  let listFetchAbort = /** @type {AbortController | null} */ (null);
 
   setAppErrorContext({
     screen: "Server browser",
@@ -45,13 +59,22 @@ export function mountServerBrowserScreen(root, ctx) {
   const statusEl = root.querySelector("#sb-status");
 
   const load = async () => {
+    if (listFetchAbort) listFetchAbort.abort();
+    listFetchAbort = new AbortController();
+    const signal = listFetchAbort.signal;
     try {
       const base = getApiBase();
-      const res = await fetch(`${base}/api/lobbies`);
+      const res = await fetch(`${base}/api/lobbies`, {
+        cache: "no-store",
+        signal,
+      });
       if (!res.ok)
         throw new Error(`${res.status} ${await res.text()} (${base})`);
-      const rows = await res.json();
-      if (!Array.isArray(rows) || rows.length === 0) {
+      const rawRows = await res.json();
+      const rows = Array.isArray(rawRows)
+        ? rawRows.filter((r) => rowIsJoinable(/** @type {Record<string, unknown>} */ (r)))
+        : [];
+      if (rows.length === 0) {
         if (tableEl) {
           tableEl.innerHTML = `<p class="arcade-hint">No public lobbies right now. Create one or join with a code.</p>`;
         }
@@ -108,14 +131,24 @@ export function mountServerBrowserScreen(root, ctx) {
       });
       if (statusEl) statusEl.textContent = "Updated";
     } catch (e) {
+      if (e && typeof e === "object" && e.name === "AbortError") return;
       if (statusEl)
         statusEl.textContent =
           e instanceof Error ? e.message : "Could not load list";
     }
   };
 
+  const onVisibility = () => {
+    if (document.visibilityState === "visible") void load();
+  };
+  const onPageShow = (/** @type {PageTransitionEvent} */ e) => {
+    if (e.persisted) void load();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("pageshow", onPageShow);
+
   load();
-  pollId = window.setInterval(load, 2500);
+  pollId = window.setInterval(load, 1500);
 
   root.querySelector("#sb-back")?.addEventListener("click", () => {
     playSfxMinor();
@@ -125,7 +158,10 @@ export function mountServerBrowserScreen(root, ctx) {
   });
 
   return () => {
+    document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("pageshow", onPageShow);
     clearInterval(pollId);
+    if (listFetchAbort) listFetchAbort.abort();
     root.innerHTML = "";
   };
 }

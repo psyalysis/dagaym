@@ -251,11 +251,19 @@ export function notifyMpServerError(m) {
           ? "The app sent an invalid message. Try refreshing the page."
           : code === "MP_LOBBY_NOT_JOINABLE"
             ? "That lobby is no longer open for joining — the match may have started or the lobby filled."
-            : `The server could not complete that action: ${rawMsg}`;
+            : code === "MP_LOBBY_FULL"
+              ? "That lobby has no free slots — it may have filled up, or the match may have moved on."
+              : `The server could not complete that action: ${rawMsg}`;
+  const defaultHint =
+    "If this keeps happening, copy the details and send them to the developer.";
+  const hint =
+    code === "MP_LOBBY_FULL" || code === "MP_LOBBY_NOT_JOINABLE"
+      ? "Open the server list again so it can refresh — stale rows are normal if the tab was in the background."
+      : defaultHint;
   const extraLines = [`Server message: ${rawMsg}`];
   showAppError({
     message: friendly,
-    hint: "If this keeps happening, copy the details and send them to the developer.",
+    hint,
     errorRef: m.error_ref ?? null,
     errorCode: code,
     source: "server",

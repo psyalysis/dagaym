@@ -557,7 +557,11 @@ class LobbyManager:
                 )
                 return
             if len(lobby.players) >= MAX_LOBBY_PLAYERS:
-                await self.send_player_error(player_id, "Lobby is full.")
+                await self.send_player_error(
+                    player_id,
+                    "Lobby is full.",
+                    error_code="MP_LOBBY_FULL",
+                )
                 return
             if self._lobby_has_user_id(lobby, user_id):
                 await self.send_player_error(
@@ -605,7 +609,11 @@ class LobbyManager:
                 )
                 return
             if len(lobby.players) >= MAX_LOBBY_PLAYERS:
-                await self.send_player_error(player_id, "Lobby is full.")
+                await self.send_player_error(
+                    player_id,
+                    "Lobby is full.",
+                    error_code="MP_LOBBY_FULL",
+                )
                 return
             if self._lobby_has_user_id(lobby, user_id):
                 await self.send_player_error(
@@ -645,12 +653,15 @@ class LobbyManager:
             for lid, L in self.lobbies.items():
                 if not self._lobby_is_public_joinable(L):
                     continue
+                slots = MAX_LOBBY_PLAYERS - len(L.players)
                 out.append(
                     {
                         "lobby_id": lid,
                         "spice": L.spice,
                         "player_count": len(L.players),
                         "max_players": MAX_LOBBY_PLAYERS,
+                        "slots_remaining": slots,
+                        "state": L.state.value,
                     }
                 )
             return sorted(out, key=lambda x: x["lobby_id"])
