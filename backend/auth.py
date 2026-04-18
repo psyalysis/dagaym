@@ -170,6 +170,37 @@ def increment_games_played_for_users(db: Session, user_ids: list[int]) -> None:
     invalidate_user_cache(*seen)
 
 
+# Beat Bucks reward amounts per match
+BUCKS_PARTICIPANT = 5
+BUCKS_SECOND = 10
+BUCKS_FIRST = 15
+
+
+def award_coins_for_game(
+    db: Session,
+    winner_ids: list[int],
+    second_place_ids: list[int],
+    all_participant_ids: list[int],
+) -> None:
+    """Award beat bucks after a match: 1st gets 20, 2nd gets 10, everyone gets 5."""
+    touched: set[int] = set()
+    winner_set = set(winner_ids)
+    second_set = set(second_place_ids)
+    for uid in all_participant_ids:
+        if uid in touched:
+            continue
+        touched.add(uid)
+        u = db.get(User, uid)
+        if u is not None:
+            u.coins += BUCKS_PARTICIPANT
+            if uid in winner_set:
+                u.coins += BUCKS_FIRST
+            elif uid in second_set:
+                u.coins += BUCKS_SECOND
+    db.commit()
+    invalidate_user_cache(*touched)
+
+
 def get_current_user(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
     db: Annotated[Session, Depends(get_db)],

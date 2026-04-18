@@ -120,7 +120,7 @@ export function mountAuthCornerMenu(ctx, opts = {}) {
         nameEl.innerHTML = `${rankBadgeHtml(me.rank)}${supporterDisplayNameInnerHtml(me.username)}`;
       }
       if (winsEl)
-        winsEl.textContent = `${me.wins} ${me.wins === 1 ? "win" : "wins"}`;
+        winsEl.textContent = `${me.wins} ${me.wins === 1 ? "win" : "wins"} · 🪙 ${me.coins ?? 0}`;
     })
     .catch(() => {
       if (winsEl) winsEl.textContent = "";

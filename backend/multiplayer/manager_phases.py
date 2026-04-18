@@ -9,7 +9,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
-from ..auth import increment_games_played_for_users, increment_wins_for_users
+from ..auth import award_coins_for_game, increment_games_played_for_users, increment_wins_for_users
 from ..database import SessionLocal
 from .lobby import (
     COOK_DURATION_MIN_OPTIONS,
@@ -244,6 +244,7 @@ async def vote_collection_loop(manager: LobbyManager, lobby_id: str) -> None:
 
 async def finalize_results(manager: LobbyManager, lobby_id: str) -> None:
     winner_user_ids: list[int] = []
+    second_place_user_ids: list[int] = []
     all_user_ids: list[int] = []
     payload: dict[str, Any] | None = None
     winners: list[str] = []
@@ -254,7 +255,7 @@ async def finalize_results(manager: LobbyManager, lobby_id: str) -> None:
         lobby.state = LobbyState.RESULTS
         lobby.results_at = time.time()
         lobby.rematch_pending.clear()
-        payload, winner_user_ids = results_ws_payload_and_winner_user_ids(
+        payload, winner_user_ids, second_place_user_ids = results_ws_payload_and_winner_user_ids(
             lobby, lobby_id
         )
         winners = list(payload.get("winner_ids") or [])
@@ -268,7 +269,7 @@ async def finalize_results(manager: LobbyManager, lobby_id: str) -> None:
 
     await manager.broadcast(lobby_id, payload)
 
-    # Persist: bump games_played for everyone, wins for winners only
+    # Persist: bump games_played for everyone, wins for winners, award coins
     def _persist_stats() -> None:
         db = SessionLocal()
         try:
@@ -276,6 +277,8 @@ async def finalize_results(manager: LobbyManager, lobby_id: str) -> None:
                 increment_games_played_for_users(db, all_user_ids)
             if winner_user_ids:
                 increment_wins_for_users(db, winner_user_ids)
+            if all_user_ids and len(all_user_ids) >= 5:
+                award_coins_for_game(db, winner_user_ids, second_place_user_ids, all_user_ids)
         finally:
             db.close()
 

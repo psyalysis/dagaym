@@ -68,6 +68,7 @@ class LeaderboardEntry(BaseModel):
 class MeResponse(BaseModel):
     username: str
     wins: int
+    coins: int = 0
     rank: RankInfo | None = None
     rank_index: int = 0
 
@@ -147,6 +148,7 @@ class BeatUploadCapabilitiesResponse(BaseModel):
 class ProfileResponse(BaseModel):
     username: str
     wins: int
+    coins: int = 0
     games_played: int = 0
     rank: RankInfo | None = None
     rank_index: int = 0

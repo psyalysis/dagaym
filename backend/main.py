@@ -413,6 +413,7 @@ def _me_response_from_user(user: User) -> MeResponse:
     return MeResponse(
         username=user.username,
         wins=user.wins,
+        coins=user.coins,
         rank=rank,
         rank_index=rank_index_for_wins(user.wins),
     )
@@ -861,6 +862,7 @@ def get_profile(
     return ProfileResponse(
         username=user.username,
         wins=user.wins,
+        coins=user.coins,
         games_played=user.games_played,
         rank=rank,
         rank_index=rank_index_for_wins(user.wins),

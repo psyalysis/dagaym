@@ -90,6 +90,7 @@ def init_db() -> None:
 
     # Auto-migrate: add games_played column if missing (create_all won't add columns to existing tables)
     _add_column_if_missing("users", "games_played", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing("users", "coins", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing("users", "bio", "VARCHAR(200)")
     _add_column_if_missing("users", "avatar_url", "VARCHAR(512)")
     _add_column_if_missing("users", "created_at", "TIMESTAMP DEFAULT NOW()")
