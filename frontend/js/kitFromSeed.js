@@ -228,14 +228,9 @@ function isValidManifestShape(data, genre = "trap") {
 }
 
 /**
- * Kit manifest: same CDN base as kit audio — files at bucket root
- * (``…/kit-manifest-trap-refined.json``, ``…/kit-manifest-edm-refined.json``), else API.
+ * Kit manifest: same CDN base as kit audio — trap uses trap-refined only (no legacy fallbacks).
  */
-const KIT_MANIFEST_CDN_FILES_TRAP = [
-  "kit-manifest-trap-refined.json",
-  "kit-manifest-refined.json",
-  "kit-manifest.json",
-];
+const KIT_MANIFEST_CDN_FILES_TRAP = ["kit-manifest-trap-refined.json"];
 
 const KIT_MANIFEST_CDN_FILES_EDM = ["kit-manifest-edm-refined.json"];
 
