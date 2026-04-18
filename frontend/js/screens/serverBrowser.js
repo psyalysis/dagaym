@@ -4,11 +4,14 @@
 import { getUsername } from "../authApi.js";
 import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLeave } from "../authCorner.js";
+import { apiFetch } from "../apiFetch.js";
 import { getApiBase } from "../apiOrigin.js";
 import { fetchPublicLobbyJoinable } from "../publicLobbyApi.js";
 import { showAppError } from "../errorToast.js";
 import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountMatchmakingScreen } from "./matchmaking.js";
+
+const SERVER_BROWSER_POLL_MS = 5000;
 
 function escapeHtml(s) {
   return String(s)
@@ -59,12 +62,13 @@ export function mountServerBrowserScreen(root, ctx) {
   const statusEl = root.querySelector("#sb-status");
 
   const load = async () => {
+    if (document.visibilityState !== "visible") return;
     if (listFetchAbort) listFetchAbort.abort();
     listFetchAbort = new AbortController();
     const signal = listFetchAbort.signal;
     try {
       const base = getApiBase();
-      const res = await fetch(`${base}/api/lobbies`, {
+      const res = await apiFetch(`${base}/api/lobbies`, {
         cache: "no-store",
         signal,
       });
@@ -149,7 +153,7 @@ export function mountServerBrowserScreen(root, ctx) {
   window.addEventListener("pageshow", onPageShow);
 
   load();
-  pollId = window.setInterval(load, 1500);
+  pollId = window.setInterval(load, SERVER_BROWSER_POLL_MS);
 
   root.querySelector("#sb-back")?.addEventListener("click", () => {
     playSfxMinor();

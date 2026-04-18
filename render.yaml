@@ -4,10 +4,18 @@ services:
     name: beat-battle
     runtime: python
     buildCommand: apt-get update -y && apt-get install -y --no-install-recommends ffmpeg && pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips=* --ws-ping-interval 25 --ws-ping-timeout 120
     envVars:
       - key: COOKUP_JWT_SECRET
         generateValue: true
       # Neon: Project → Connection string → URI (include ?sslmode=require).
       - key: DATABASE_URL 
         sync: false
+      - key: COOKUP_TRUST_PROXY_HEADERS
+        value: "true"
+      - key: COOKUP_HTTP_RATE_LIMIT_RATE
+        value: "90"
+      - key: COOKUP_HTTP_RATE_LIMIT_WINDOW_S
+        value: "10"
+      - key: COOKUP_LOBBIES_CACHE_TTL_S
+        value: "5"

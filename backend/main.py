@@ -88,6 +88,39 @@ FRONTEND_ROOT = _PROJECT_ROOT / "frontend"
 _DATASET_ROOT = _PROJECT_ROOT / "dataset"
 
 
+def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if minimum is not None:
+        value = max(minimum, value)
+    return value
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if minimum is not None:
+        value = max(minimum, value)
+    return value
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _resolve_dataset_media_file(rel: str) -> Path | None:
     """Try CDN-style relative paths and common ``dataset/`` mirror layouts."""
     rel = rel.replace("\\", "/").strip().lstrip("/")
@@ -354,7 +387,12 @@ class StaticCacheControlMiddleware:
 
 
 app.add_middleware(StaticCacheControlMiddleware)
-app.add_middleware(IPRateLimitMiddleware, rate=30, window_s=10.0)
+app.add_middleware(
+    IPRateLimitMiddleware,
+    rate=_env_int("COOKUP_HTTP_RATE_LIMIT_RATE", 90, minimum=1),
+    window_s=_env_float("COOKUP_HTTP_RATE_LIMIT_WINDOW_S", 10.0, minimum=1.0),
+    trust_proxy_headers=_env_bool("COOKUP_TRUST_PROXY_HEADERS", False),
+)
 
 _LOGIN_LIMIT = SlidingWindowRateLimiter(max_events=10, window_s=60.0)
 _REGISTER_LIMIT = SlidingWindowRateLimiter(max_events=5, window_s=60.0)
@@ -614,7 +652,7 @@ _supporters_cache: tuple[float, dict[str, Any]] | None = None
 _SUPPORTERS_TTL_S = 60.0
 
 _lobbies_cache: tuple[float, list[dict[str, Any]]] | None = None
-_LOBBIES_TTL_S = 2.0
+_LOBBIES_TTL_S = _env_float("COOKUP_LOBBIES_CACHE_TTL_S", 5.0, minimum=1.0)
 
 
 @app.get("/leaderboard", response_model=list[LeaderboardEntry])

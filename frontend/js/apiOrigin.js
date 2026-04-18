@@ -1,3 +1,5 @@
+import { apiFetch } from "./apiFetch.js";
+
 /**
  * Where the frontend talks to: sessionStorage override first, then bare :8000 for local uvicorn,
  * then a meta tag, then whatever origin we're on.
@@ -73,7 +75,7 @@ export async function fetchWsTicket() {
   try {
     const t = localStorage.getItem(WS_TOKEN_KEY)?.trim();
     if (!t) return null;
-    const res = await fetch(`${getApiBase()}/api/ws-ticket`, {
+    const res = await apiFetch(`${getApiBase()}/api/ws-ticket`, {
       method: "POST",
       headers: { Authorization: `Bearer ${t}` },
     });

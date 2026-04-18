@@ -41,6 +41,14 @@ class IPRateLimitMiddleware:
     """
 
     SKIP_PREFIXES = ("/login", "/register", "/health", "/ws")
+    LIMIT_PREFIXES = (
+        "/api/",
+        "/generate",
+        "/me",
+        "/leaderboard",
+        "/upload/beat/",
+        "/beats/",
+    )
 
     def __init__(
         self,
@@ -48,25 +56,32 @@ class IPRateLimitMiddleware:
         *,
         rate: int = _DEFAULT_RATE,
         window_s: float = _DEFAULT_WINDOW_S,
+        trust_proxy_headers: bool = False,
     ) -> None:
         self.app = app
         self.rate = rate
         self.window_s = window_s
+        self.trust_proxy_headers = trust_proxy_headers
         self._buckets: dict[str, _Bucket] = {}
         self._last_gc = 0.0
 
     # -- helpers ----------------------------------------------------------
 
-    @staticmethod
-    def _client_ip(scope: dict) -> str:
+    def _client_ip(self, scope: dict) -> str:
         client = scope.get("client")
         if client:
             return client[0]
-        # Behind a reverse proxy, check x-forwarded-for
-        for hdr_name, hdr_val in scope.get("headers", []):
-            if hdr_name == b"x-forwarded-for":
-                return hdr_val.decode("latin-1").split(",")[0].strip()
+        if self.trust_proxy_headers:
+            for hdr_name, hdr_val in scope.get("headers", []):
+                if hdr_name == b"x-forwarded-for":
+                    return hdr_val.decode("latin-1").split(",")[0].strip()
         return "unknown"
+
+    @classmethod
+    def _should_limit(cls, path: str) -> bool:
+        if any(path.startswith(p) for p in cls.SKIP_PREFIXES):
+            return False
+        return any(path.startswith(p) for p in cls.LIMIT_PREFIXES)
 
     def _gc_stale(self, now: float) -> None:
         if now - self._last_gc < _GC_INTERVAL_S:
@@ -109,7 +124,7 @@ class IPRateLimitMiddleware:
             return
 
         path: str = scope.get("path", "")
-        if any(path.startswith(p) for p in self.SKIP_PREFIXES):
+        if not self._should_limit(path):
             await self.app(scope, receive, send)
             return
 

@@ -2,6 +2,7 @@
  * WS missed a phase change? Poll HTTP and catch up.
  */
 import { authHeaders } from "./authApi.js";
+import { apiFetch } from "./apiFetch.js";
 import { getApiBase } from "./apiOrigin.js";
 
 // WS fallback poll — only runs when the WebSocket misses phase changes.
@@ -13,7 +14,7 @@ const DEFAULT_POLL_MS = 15000;
  * @returns {Promise<Record<string, unknown> | null>}
  */
 export async function fetchMatchSync(lobbyId) {
-  const res = await fetch(
+  const res = await apiFetch(
     `${getApiBase()}/api/lobby/${encodeURIComponent(String(lobbyId))}/match_sync`,
     { headers: authHeaders() },
   );
