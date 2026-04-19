@@ -144,7 +144,7 @@ export function mountUploadScreen(root, ctx) {
   const form = root.querySelector("#upload-form");
   const statusEl = root.querySelector("#upload-status");
   const uploadHintEl = root.querySelector(".screen.upload > .arcade-hint");
-  if (uploadHintEl) uploadHintEl.textContent = "MP3 only - max 30MB - up to 45s";
+  if (uploadHintEl) uploadHintEl.textContent = "MP3 ONLY - max 30MB - up to 45s";
   const uploadTotalSec = UPLOAD_WINDOW_SEC;
 
   /** @type {ReturnType<typeof normalizeLobbyLike>} */
@@ -353,7 +353,11 @@ export function mountUploadScreen(root, ctx) {
       syncSelfUploadUi();
     } catch (err) {
       const um = err instanceof Error ? err.message : "Upload failed";
-      if (statusEl) statusEl.textContent = um;
+      if (statusEl) {
+        statusEl.textContent = um.includes("Only MP3")
+          ? "Only MP3 uploads are allowed right now."
+          : um;
+      }
       showAppError({
         message: `Upload failed: ${um}`,
         hint: um.includes("Only MP3")
