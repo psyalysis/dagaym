@@ -6,17 +6,28 @@ import { getApiBase } from "./apiOrigin.js";
 import { setAppErrorContext } from "./errorToast.js";
 import {
   fetchKitManifest,
-  KIT_SOUND_KEYS,
+  getKitSoundKeys,
+  getSynthKeys,
   KIT_SOUND_FILE_EXT,
   loadDrumKitBase64Parallel,
   loadSynthBuffersAndMp3Base64Parallel,
-  SYNTH_KEYS,
+  normalizeKitGenre,
 } from "./kitFromSeed.js";
 import { kitSlotDisplayLabel, mountKitLayoutShell } from "./kitGridLayout.js";
+import { transitionPanelHeight } from "./panelHeightTransition.js";
 import { playSfxMajor, playSfxMinor, playSfxOn } from "./sfx.js";
 import { runSynthReveal } from "./synthReveal.js";
 
-const SOUND_KEYS = KIT_SOUND_KEYS;
+const CHILI_SRC = new URL("../../imgs/chili.png", import.meta.url).href;
+
+const SPICES = [
+  { value: 0.25, count: 1 },
+  { value: 0.5, count: 2 },
+  { value: 0.85, count: 3 },
+];
+
+/** EDM kits hide spice UI; RNG still needs a value — fixed canonical heat. */
+const EDM_FIXED_SPICE = 0.5;
 
 function base64ToAudioSrc(base64) {
   return "data:audio/ogg;base64," + base64;
@@ -44,12 +55,20 @@ function resolveApiBase(ctx) {
 }
 
 export function mountSoloScreen(root, ctx) {
-  setAppErrorContext({ screen: "Solo cook", phase: "Offline kit" });
+  setAppErrorContext({ screen: "Solo mode", phase: "Offline kit" });
   const apiBase = resolveApiBase(ctx);
+  /** @type {"trap" | "edm"} */
+  let kitGenre = normalizeKitGenre(ctx.kitGenre);
   const waveSurfers = new Map();
   const audioSrcByKey = new Map();
   const clickFullPlayback = new Map();
   let lastSoundsB64 = null;
+  /** @type {number | null} */
+  let lastKitSeed = null;
+  /** @type {number | null} */
+  let lastKitSpice = null;
+  /** Solo: one discrete spice level (same values as multiplayer heat cards). */
+  let selectedSpice = 0.5;
   /** @type {HTMLElement | null} */
   let activeKitOverlay = null;
   /** @type {AudioContext | null} */
@@ -83,22 +102,34 @@ export function mountSoloScreen(root, ctx) {
     <div class="screen solo arcade-panel screen--vert-center">
       <div class="screen-topbar">
         <button type="button" class="arcade-back" id="solo-back" aria-label="Back">&lt;</button>
-        <h2 class="arcade-heading screen-topbar-title">SOLO COOK</h2>
+        <h2 class="arcade-heading screen-topbar-title">SOLO MODE</h2>
         <span class="screen-topbar-spacer" aria-hidden="true"></span>
       </div>
       <section class="toolbar solo-toolbar" aria-label="Controls">
-        <label class="field field-inline">
-          <span class="field-label">Spice</span>
-          <div class="field-row">
-            <input type="range" id="spice" min="0" max="1" step="0.1" value="0.3" />
-            <span id="spice-value" class="field-value">0.3</span>
-          </div>
-        </label>
-        <div class="toolbar-actions">
-          <button type="button" id="btn-generate" class="arcade-btn arcade-btn-primary">Generate Battle Kit</button>
-          <div id="kit-actions" class="kit-actions hidden">
-            <button type="button" id="btn-regenerate" class="arcade-btn arcade-btn-primary">ReGenerate Battle Kit</button>
-            <button type="button" id="btn-download-all" class="arcade-btn arcade-btn-secondary">Download all</button>
+        <div class="mp-hub-body solo-toolbar-stack">
+          <fieldset class="visibility-field">
+            <legend class="arcade-label">Genre</legend>
+            <label class="vis-option"><input type="radio" name="solo-genre" value="trap" ${
+              kitGenre === "edm" ? "" : "checked"
+            } /> Trap</label>
+            <label class="vis-option"><input type="radio" name="solo-genre" value="edm" ${
+              kitGenre === "edm" ? "checked" : ""
+            } /> EDM</label>
+          </fieldset>
+          <fieldset
+            class="visibility-field"
+            id="solo-spice-fieldset"
+            ${kitGenre === "edm" ? "hidden" : ""}
+          >
+            <legend class="arcade-label">Spiciness</legend>
+            <div class="spice-cards" id="solo-spice-cards" role="radiogroup" aria-label="Spiciness"></div>
+          </fieldset>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-generate" class="arcade-btn arcade-btn-primary">Generate Battle Kit</button>
+            <div id="kit-actions" class="kit-actions hidden">
+              <button type="button" id="btn-regenerate" class="arcade-btn arcade-btn-primary">ReGenerate Battle Kit</button>
+              <button type="button" id="btn-download-all" class="arcade-btn arcade-btn-secondary">Download all</button>
+            </div>
           </div>
         </div>
       </section>
@@ -107,17 +138,91 @@ export function mountSoloScreen(root, ctx) {
     </div>
   `;
 
-  const spice = root.querySelector("#spice");
-  const spiceVal = root.querySelector("#spice-value");
-  const updateSpice = () => {
-    if (spiceVal && spice)
-      spiceVal.textContent = Number(spice.value).toFixed(1);
+  const soloSpiceCardsEl = root.querySelector("#solo-spice-cards");
+  const refreshSoloSpiceCards = () => {
+    soloSpiceCardsEl?.querySelectorAll(".spice-card").forEach((btn) => {
+      if (!(btn instanceof HTMLButtonElement)) return;
+      const v = parseFloat(btn.dataset.spice || "0");
+      const active = v === selectedSpice;
+      btn.classList.toggle("spice-card--active", active);
+      btn.setAttribute("aria-checked", active ? "true" : "false");
+    });
   };
-  spice?.addEventListener("input", () => {
-    playSfxOn();
-    updateSpice();
+  SPICES.forEach((s) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "spice-card";
+    b.dataset.spice = String(s.value);
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", "false");
+    const row = document.createElement("span");
+    row.className = "spice-card-chilis";
+    row.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < s.count; i++) {
+      const img = document.createElement("img");
+      img.className = "spice-chili-icon";
+      img.src = CHILI_SRC;
+      img.alt = "";
+      img.width = 32;
+      img.height = 32;
+      row.appendChild(img);
+    }
+    b.appendChild(row);
+    b.addEventListener("click", () => {
+      if (selectedSpice === s.value) return;
+      playSfxOn();
+      selectedSpice = s.value;
+      refreshSoloSpiceCards();
+    });
+    soloSpiceCardsEl?.appendChild(b);
   });
-  updateSpice();
+  refreshSoloSpiceCards();
+
+  const soloSpiceFieldset = root.querySelector("#solo-spice-fieldset");
+  const soloPanel = root.querySelector(".screen.solo.arcade-panel");
+  const syncSoloSpiceFieldVisibility = (animated = false) => {
+    const g = normalizeKitGenre(kitGenre);
+    const shouldHide = g === "edm";
+    const apply = () => {
+      if (soloSpiceFieldset instanceof HTMLFieldSetElement) {
+        soloSpiceFieldset.hidden = shouldHide;
+      }
+    };
+    if (
+      animated &&
+      soloPanel instanceof HTMLElement &&
+      soloSpiceFieldset instanceof HTMLFieldSetElement
+    ) {
+      transitionPanelHeight(soloPanel, apply);
+    } else {
+      apply();
+    }
+  };
+  syncSoloSpiceFieldVisibility(false);
+
+  root.querySelectorAll('input[name="solo-genre"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      playSfxOn();
+      kitGenre = normalizeKitGenre(
+        root.querySelector('input[name="solo-genre"]:checked')?.getAttribute(
+          "value",
+        ),
+      );
+      ctx.kitGenre = kitGenre;
+      syncSoloSpiceFieldVisibility(true);
+      if (lastSoundsB64) {
+        lastSoundsB64 = null;
+        lastKitSeed = null;
+        lastKitSpice = null;
+        destroyWaveSurfers();
+        audioSrcByKey.clear();
+        clickFullPlayback.clear();
+        setKitUiVisible(false);
+        const st = root.querySelector("#status");
+        if (st) st.textContent = "Genre changed — generate a new kit.";
+      }
+    });
+  });
 
   root.querySelector("#solo-back")?.addEventListener("click", async () => {
     playSfxMinor();
@@ -136,7 +241,7 @@ export function mountSoloScreen(root, ctx) {
     head.className = "card-head";
     const title = document.createElement("h2");
     title.className = "card-title";
-    title.textContent = kitSlotDisplayLabel(key, "trap");
+    title.textContent = kitSlotDisplayLabel(key, kitGenre);
     const dl = document.createElement("button");
     dl.type = "button";
     dl.className = "card-download";
@@ -164,8 +269,9 @@ export function mountSoloScreen(root, ctx) {
     const grid = root.querySelector("#sound-grid");
     if (!grid) return;
     mountKitLayoutShell(grid, {
-      synthKeys: SYNTH_KEYS,
+      synthKeys: [...getSynthKeys(kitGenre, lastKitSeed, lastKitSpice)],
       appendCard: buildKitCard,
+      genre: kitGenre,
     });
   }
 
@@ -229,7 +335,7 @@ export function mountSoloScreen(root, ctx) {
     destroyWaveSurfers();
     audioSrcByKey.clear();
     clickFullPlayback.clear();
-    SOUND_KEYS.forEach((key) => {
+    getKitSoundKeys(kitGenre, lastKitSeed, lastKitSpice).forEach((key) => {
       const b64 = sounds[key];
       if (!b64) return;
       const src = base64ToAudioSrc(b64);
@@ -238,7 +344,7 @@ export function mountSoloScreen(root, ctx) {
       if (audio instanceof HTMLAudioElement) audio.src = src;
     });
     afterLayout(() => {
-      SOUND_KEYS.forEach((key) => {
+      getKitSoundKeys(kitGenre, lastKitSeed, lastKitSpice).forEach((key) => {
         const src = audioSrcByKey.get(key);
         if (src) renderWaveform(key, src);
       });
@@ -273,7 +379,7 @@ export function mountSoloScreen(root, ctx) {
     const zip = new JSZip();
     const folder = zip.folder("beat_battle_kit");
     if (!folder) return;
-    for (const key of SOUND_KEYS) {
+    for (const key of getKitSoundKeys(kitGenre, lastKitSeed, lastKitSpice)) {
       const b64 = lastSoundsB64[key];
       if (!b64) continue;
       folder.file(`${key}.${KIT_SOUND_FILE_EXT}`, base64ToBytes(b64), {
@@ -310,10 +416,10 @@ export function mountSoloScreen(root, ctx) {
 
   async function generateKit() {
     const status = root.querySelector("#status");
-    const spiceEl = root.querySelector("#spice");
     const btnGen = root.querySelector("#btn-generate");
     const btnReg = root.querySelector("#btn-regenerate");
-    const spiceNum = spiceEl ? parseFloat(spiceEl.value) : 0.3;
+    const spiceNum =
+      normalizeKitGenre(kitGenre) === "edm" ? EDM_FIXED_SPICE : selectedSpice;
 
     const loading = () => {
       if (status) status.textContent = "";
@@ -345,12 +451,13 @@ export function mountSoloScreen(root, ctx) {
     let drumsPending = true;
 
     try {
-      const manifest = await fetchKitManifest(base);
+      const manifest = await fetchKitManifest(base, kitGenre);
       const drumPromise = loadDrumKitBase64Parallel({
         seed,
         spice: spiceNum,
         apiBase: base,
         manifest,
+        genre: kitGenre,
         onProgress: ({ step, total }) => {
           if (loadEl) loadEl.textContent = `Loading kit ${step} / ${total}…`;
         },
@@ -365,13 +472,17 @@ export function mountSoloScreen(root, ctx) {
           apiBase: base,
           audioContext: ac,
           manifest,
+          genre: kitGenre,
         });
 
       if (loadEl) loadEl.textContent = "";
       loadLayer.remove();
       activeKitOverlay = null;
 
-      await runSynthReveal(ac, synthBuffers, () => drumsPending);
+      await runSynthReveal(ac, synthBuffers, () => drumsPending, {
+        synthKeys: [...getSynthKeys(kitGenre, seed, spiceNum)],
+        genre: kitGenre,
+      });
 
       const drumSounds = await drumPromise;
       const sounds = { ...drumSounds, ...synthB64 };
@@ -379,6 +490,8 @@ export function mountSoloScreen(root, ctx) {
       await ac.close().catch(() => {});
       activeKitAc = null;
 
+      lastKitSeed = seed;
+      lastKitSpice = spiceNum;
       lastSoundsB64 = sounds;
       buildGrid();
       setKitUiVisible(true);

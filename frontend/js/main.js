@@ -9,6 +9,10 @@ import {
   setAppErrorContext,
   showAppError,
 } from "./errorToast.js";
+import {
+  queryPrimaryArcadePanel,
+  transitionPanelEnterFromHeight,
+} from "./panelHeightTransition.js";
 import { playSfxBeatBattle } from "./sfx.js";
 import { mountModeSelectScreen } from "./screens/modeSelect.js";
 import { initCornerSocialTooltips } from "./cornerSocialTooltips.js";
@@ -54,6 +58,13 @@ function boot() {
 
   /** @param {(el: HTMLElement, ctx: object) => () => void} mountFn */
   const navigate = (mountFn, extra = {}) => {
+    const { skipPanelEnterTransition, ...navExtra } = extra;
+    const prevPanel = unmount ? queryPrimaryArcadePanel(root) : null;
+    const prevHeight =
+      prevPanel instanceof HTMLElement
+        ? prevPanel.getBoundingClientRect().height
+        : null;
+
     if (unmount) unmount();
     clearAuthCorner();
     resetAppErrorContext();
@@ -61,13 +72,22 @@ function boot() {
       apiBase: getApiBase(),
       navigate,
       username: getUsername(),
-      ...extra,
+      ...navExtra,
     };
     if (ctx.playerId != null)
       setAppErrorContext({ playerId: String(ctx.playerId) });
     if (ctx.lobbyId != null)
       setAppErrorContext({ lobbyId: String(ctx.lobbyId) });
     unmount = mountFn(root, ctx);
+
+    const nextPanel = queryPrimaryArcadePanel(root);
+    if (
+      prevHeight != null &&
+      nextPanel instanceof HTMLElement &&
+      !skipPanelEnterTransition
+    ) {
+      transitionPanelEnterFromHeight(nextPanel, prevHeight);
+    }
   };
 
   if (creditsBtn instanceof HTMLElement)
@@ -79,6 +99,7 @@ function boot() {
     import("./screens/profileScreen.js").then((m) => {
       navigate(m.mountProfileScreen, {
         profileUsername: decodeURIComponent(profileMatch[1]),
+        skipPanelEnterTransition: true,
       });
     });
   } else {

@@ -411,6 +411,10 @@ input.lobby-code-input {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.kit-row--cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .kit-layout .card {
   display: flex;
   flex-direction: column;
@@ -1159,6 +1163,18 @@ button.credits-entry-name--link:focus-visible {
   text-align: center;
 }
 
+.solo .solo-toolbar .mp-hub-body {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.solo .solo-toolbar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .solo .field-inline {
   margin-left: auto;
   margin-right: auto;
@@ -1356,8 +1372,8 @@ button.credits-entry-name--link:focus-visible {
 
 .spice-chili-icon {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -3355,6 +3371,10 @@ button.auth-corner-card.auth-corner-menu-toggle {
   margin: 1.75rem 0 0;
 }
 
+.synth-reveal-stack--many {
+  min-height: clamp(420px, 62vw, 520px);
+}
+
 .synth-card {
   position: absolute;
   left: 50%;
@@ -3374,6 +3394,8 @@ button.auth-corner-card.auth-corner-menu-toggle {
   align-items: center;
   justify-content: center;
   opacity: 0;
+  /* Set in JS: final stack offset for this index (trap 3 or EDM 6, etc.). */
+  --placed-y: 0px;
   /* Start above the stack; motion is vertical only (no rotate / tilt). */
   transform: translate(-50%, calc(-50% - 240px));
   transition:
@@ -3388,20 +3410,10 @@ button.auth-corner-card.auth-corner-menu-toggle {
   color: var(--text-muted);
 }
 
-/* Back of pile lower on screen; newest (2) highest. z-index set in JS per reveal. */
-.synth-card--in.synth-card--placed[data-synth-i="0"] {
+/* Back of pile lower on screen; z-index set in JS per reveal step. */
+.synth-card--in.synth-card--placed {
   opacity: 1;
-  transform: translate(-50%, calc(-50% + 34px));
-}
-
-.synth-card--in.synth-card--placed[data-synth-i="1"] {
-  opacity: 1;
-  transform: translate(-50%, calc(-50% + 17px));
-}
-
-.synth-card--in.synth-card--placed[data-synth-i="2"] {
-  opacity: 1;
-  transform: translate(-50%, calc(-50% + 0px));
+  transform: translate(-50%, calc(-50% + var(--placed-y)));
 }
 
 /* Competitive ranks */

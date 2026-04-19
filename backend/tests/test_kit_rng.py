@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.kit_rng import pick_index
+from backend.kit_rng import EDM_VARIANT_POOL, pick_edm_fourth_synth_key, pick_index
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "backend" / "tests" / "pick_parity_runner.mjs"
@@ -33,6 +33,13 @@ def test_pick_index_in_range(seed: int, slot: int, spice: float, n: int) -> None
 
 def test_pick_index_n_one() -> None:
     assert pick_index(1, 2, 0.3, 1) == 0
+
+
+@pytest.mark.parametrize("seed", [0, 12345, 999999, 2**31 - 1])
+@pytest.mark.parametrize("spice", [0.0, 0.3, 0.85, 1.0])
+def test_pick_edm_fourth_is_one_of_pool(seed: int, spice: float) -> None:
+    k = pick_edm_fourth_synth_key(seed, spice)
+    assert k in EDM_VARIANT_POOL
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH")

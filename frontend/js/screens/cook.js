@@ -26,12 +26,12 @@ import {
 import { playSfxMinor } from "../sfx.js";
 import {
   fetchKitManifest,
-  KIT_SOUND_KEYS,
+  getKitSoundKeys,
+  getSynthKeys,
   KIT_SOUND_FILE_EXT,
   loadDrumKitBase64Parallel,
   loadSynthBuffersAndMp3Base64Parallel,
   normalizeKitGenre,
-  SYNTH_KEYS,
 } from "../kitFromSeed.js";
 import { runSynthReveal } from "../synthReveal.js";
 import { kitSlotDisplayLabel, mountKitLayoutShell } from "../kitGridLayout.js";
@@ -53,8 +53,6 @@ import { mountUploadScreen } from "./upload.js";
 import { mountVotingSlideshowScreen } from "./votingSlideshow.js";
 import { mountResultsScreen } from "./results.js";
 
-const SOUND_KEYS = KIT_SOUND_KEYS;
-
 function base64ToAudioSrc(b64) {
   return "data:audio/ogg;base64," + b64;
 }
@@ -72,12 +70,12 @@ function base64ToBytes(b64) {
   return out;
 }
 
-async function downloadKitZip(sounds) {
+async function downloadKitZip(sounds, genre = "trap", seed, spice) {
   const JSZip = getJSZip();
   const zip = new JSZip();
   const folder = zip.folder("beat_battle_kit");
   if (!folder) return;
-  for (const key of SOUND_KEYS) {
+  for (const key of getKitSoundKeys(genre, seed, spice)) {
     const b64 = sounds[key];
     if (!b64) continue;
     folder.file(`${key}.${KIT_SOUND_FILE_EXT}`, base64ToBytes(b64), {
@@ -117,13 +115,11 @@ function getWaveSurfer() {
   throw new Error("WaveSurfer not loaded");
 }
 
-function kitNeedsFetch(sounds, genre = "trap") {
+function kitNeedsFetch(sounds, genre = "trap", seed, spice) {
   if (!sounds || typeof sounds !== "object") return true;
-  const g = normalizeKitGenre(genre);
-  return !SOUND_KEYS.every((k) => {
-    if (g === "edm" && k === "808s") return true;
-    return Boolean(sounds[k]);
-  });
+  return !getKitSoundKeys(genre, seed, spice).every((k) =>
+    Boolean(sounds[k]),
+  );
 }
 
 /**
@@ -214,15 +210,19 @@ function tryNavigatePastCookPhase(ctx, ws, meta) {
  * @param {object} ctx
  * @param {(sounds: Record<string, string>) => void} start
  * @param {{ getCancelled: () => boolean; skipSynthReveal?: boolean }} opts
+ * @param {Awaited<ReturnType<typeof fetchLobbyKitMeta>>} [prefetchedMeta]
  */
-async function buildKitClientSide(root, ctx, start, opts) {
-  const meta = await fetchLobbyKitMeta(ctx);
+async function buildKitClientSide(root, ctx, start, opts, prefetchedMeta) {
+  const meta =
+    prefetchedMeta ?? (await fetchLobbyKitMeta(ctx));
   if (opts.getCancelled()) return;
   if (tryNavigatePastCookPhase(ctx, ctx.mpWs, meta)) return;
 
   const { seed, spice } = meta;
   const kitGenre = normalizeKitGenre(meta.genre ?? ctx.kitGenre);
   ctx.kitGenre = kitGenre;
+  ctx.kitSeed = seed;
+  ctx.kitSpice = spice;
   const apiBase = getApiBase();
   const ac = new AudioContext({ sampleRate: 44100 });
   let drumsPending = true;
@@ -308,7 +308,10 @@ async function buildKitClientSide(root, ctx, start, opts) {
     if (loadEl) loadEl.textContent = "";
 
     if (!opts.skipSynthReveal) {
-      await runSynthReveal(ac, synthBuffers, () => drumsPending);
+      await runSynthReveal(ac, synthBuffers, () => drumsPending, {
+        synthKeys: [...getSynthKeys(kitGenre, seed, spice)],
+        genre: kitGenre,
+      });
     }
     if (opts.getCancelled()) {
       stopPhasePoll();
@@ -512,13 +515,14 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
 
   if (grid)
     mountKitLayoutShell(grid, {
-      synthKeys: SYNTH_KEYS,
+      synthKeys: [...getSynthKeys(ctx.kitGenre, ctx.kitSeed, ctx.kitSpice)],
       appendCard: appendCookCard,
       genre: normalizeKitGenre(ctx.kitGenre),
     });
 
+  const soundKeys = [...getKitSoundKeys(ctx.kitGenre, ctx.kitSeed, ctx.kitSpice)];
   clickFullPlayback.clear();
-  SOUND_KEYS.forEach((key) => {
+  soundKeys.forEach((key) => {
     const b64 = sounds[key];
     if (!b64) return;
     const src = base64ToAudioSrc(b64);
@@ -528,7 +532,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      SOUND_KEYS.forEach((key) => {
+      soundKeys.forEach((key) => {
         const b64 = sounds[key];
         if (!b64) return;
         renderWaveform(key, base64ToAudioSrc(b64));
@@ -546,7 +550,9 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
 
   root.querySelector("#mp-download-kit")?.addEventListener("click", () => {
     playSfxMinor();
-    downloadKitZip(sounds).catch(() => {});
+    downloadKitZip(sounds, ctx.kitGenre, ctx.kitSeed, ctx.kitSpice).catch(
+      () => {},
+    );
   });
 
   const finishedBtn = root.querySelector("#mp-finished");
@@ -837,46 +843,6 @@ export function mountCookScreen(root, ctx) {
     });
   };
 
-  if (kitNeedsFetch(ctx.sounds, ctx.kitGenre)) {
-    mountAuthCornerLeave(ctx);
-    void (async () => {
-      try {
-        await buildKitClientSide(root, ctx, start, {
-          getCancelled: () => cancelled,
-          skipSynthReveal: Boolean(ctx.skipSynthReveal),
-        });
-      } catch (e) {
-        if (!cancelled) {
-          const msg = e instanceof Error ? e.message : "Unknown error";
-          showAppError({
-            message: `Could not build the sound kit (${msg}).`,
-            hint: "Try leaving and rejoining the match, or refresh if this repeats.",
-            errorCode: "KIT_CLIENT",
-          });
-          root.innerHTML = `
-          <div class="screen cook arcade-panel screen--vert-center">
-            <p class="arcade-error">Could not load kit.</p>
-            <p class="arcade-hint" id="cook-err-detail"></p>
-          </div>`;
-          const det = root.querySelector("#cook-err-detail");
-          if (det) det.textContent = msg;
-        }
-      }
-    })();
-    return () => {
-      unmountFlags.teardownClose = true;
-      cancelled = true;
-      bridgeActive = false;
-      try {
-        ctx.mpWs.removeEventListener("close", onBridgeSocketClose);
-      } catch {
-        /* ignore */
-      }
-      innerCleanup();
-      root.innerHTML = "";
-    };
-  }
-
   void (async () => {
     try {
       const meta = await fetchLobbyKitMeta(ctx);
@@ -890,6 +856,44 @@ export function mountCookScreen(root, ctx) {
         pending.lastCookRemainingS = meta.cookRemainingS;
       }
       ctx.kitGenre = normalizeKitGenre(meta.genre ?? ctx.kitGenre);
+      ctx.kitSeed = meta.seed;
+      ctx.kitSpice = meta.spice;
+
+      if (
+        kitNeedsFetch(ctx.sounds, ctx.kitGenre, ctx.kitSeed, ctx.kitSpice)
+      ) {
+        mountAuthCornerLeave(ctx);
+        try {
+          await buildKitClientSide(
+            root,
+            ctx,
+            start,
+            {
+              getCancelled: () => cancelled,
+              skipSynthReveal: Boolean(ctx.skipSynthReveal),
+            },
+            meta,
+          );
+        } catch (e) {
+          if (!cancelled) {
+            const msg = e instanceof Error ? e.message : "Unknown error";
+            showAppError({
+              message: `Could not build the sound kit (${msg}).`,
+              hint: "Try leaving and rejoining the match, or refresh if this repeats.",
+              errorCode: "KIT_CLIENT",
+            });
+            root.innerHTML = `
+          <div class="screen cook arcade-panel screen--vert-center">
+            <p class="arcade-error">Could not load kit.</p>
+            <p class="arcade-hint" id="cook-err-detail"></p>
+          </div>`;
+            const det = root.querySelector("#cook-err-detail");
+            if (det) det.textContent = msg;
+          }
+        }
+        return;
+      }
+
       start(ctx.sounds);
     } catch (e) {
       if (!cancelled) {

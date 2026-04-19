@@ -70,7 +70,10 @@ export function mountLeaderboardScreen(root, ctx) {
           playSfxMinor();
           history.pushState({ profile: u }, "", `/@${u}`);
           import("./profileScreen.js").then((m) =>
-            ctx.navigate(m.mountProfileScreen, { profileUsername: u }),
+            ctx.navigate(m.mountProfileScreen, {
+              profileUsername: u,
+              skipPanelEnterTransition: true,
+            }),
           );
         });
       });

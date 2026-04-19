@@ -309,6 +309,7 @@ export function mountProfileScreen(root, ctx) {
     ctx.navigate(mountProfileScreen, {
       profileUsername: username,
       _prevScreen: mountProfileScreen,
+      skipPanelEnterTransition: true,
     });
   }
 
@@ -353,6 +354,7 @@ export function mountProfileScreen(root, ctx) {
       ctx.navigate(mountProfileScreen, {
         profileUsername: state.profile,
         _prevScreen: mountProfileScreen,
+        skipPanelEnterTransition: true,
       });
     }
   };

@@ -116,7 +116,10 @@ export function openCreditsOverlay(navigate) {
         close();
         history.pushState({ profile: slug }, "", `/@${encodeURIComponent(slug)}`);
         import("./screens/profileScreen.js").then((m) =>
-          navigate(m.mountProfileScreen, { profileUsername: slug }),
+          navigate(m.mountProfileScreen, {
+            profileUsername: slug,
+            skipPanelEnterTransition: true,
+          }),
         );
       });
       nameEl = btn;

@@ -11,8 +11,8 @@ Trap — resolution order for :func:`get_kit_manifest_cached`:
    else ``dataset/beat-battle-assets/DRACO/TrapRefined/``, else ``dataset/trap/``.
 
 EDM — :func:`get_kit_manifest_for_genre` with ``genre=edm`` uses ``KIT_MANIFEST_EDM_PATH`` / ``KIT_MANIFEST_EDM_URL``
-(default CDN ``kit-manifest-edm-refined.json``), else scans ``dataset/EDM/`` or nested
-``dataset/beat-battle-assets/EDM/``.
+(default CDN ``kit-manifest-edm-refined.json``), else scans ``dataset/EDM/<KIT_EDM_KEY>/`` (see
+``backend.generator.KIT_EDM_KEYS``) or nested ``dataset/beat-battle-assets/EDM/``.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from typing import Any
 from .audio_utils import list_dataset_samples_in_dir
 from .generator import (
     DATASET_ROOT,
+    KIT_EDM_KEYS,
     _LIGHT_KIT_KEYS,
     _dataset_dir,
     trap_synth_samples_dir,
@@ -149,7 +150,7 @@ def _normalize_edm_paths_in_keys(data: dict[str, Any]) -> None:
                     lst[i] = q
 
 
-def _validate_manifest_payload(data: Any) -> dict[str, Any]:
+def _validate_trap_manifest_payload(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict) or "keys" not in data:
         raise ValueError("Invalid kit manifest JSON: missing top-level 'keys'")
     keys = data["keys"]
@@ -167,9 +168,30 @@ def _validate_manifest_payload(data: Any) -> dict[str, Any]:
     return data
 
 
-def _load_kit_manifest_json(path: Path) -> dict[str, Any]:
+def _validate_edm_manifest_payload(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict) or "keys" not in data:
+        raise ValueError("Invalid EDM kit manifest JSON: missing top-level 'keys'")
+    keys = data["keys"]
+    if not isinstance(keys, dict):
+        raise ValueError("Invalid EDM kit manifest JSON: 'keys' must be an object")
+    _normalize_edm_paths_in_keys(data)
+    keys = data["keys"]
+    for k in KIT_EDM_KEYS:
+        if k not in keys or not isinstance(keys[k], list):
+            raise ValueError(
+                f"Invalid EDM kit manifest JSON: missing or non-array keys[{k!r}]"
+            )
+    return data
+
+
+def _load_trap_kit_manifest_json(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    return _validate_manifest_payload(data)
+    return _validate_trap_manifest_payload(data)
+
+
+def _load_edm_kit_manifest_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return _validate_edm_manifest_payload(data)
 
 
 def _load_kit_manifest_from_url(url: str) -> dict[str, Any]:
@@ -184,7 +206,22 @@ def _load_kit_manifest_from_url(url: str) -> dict[str, Any]:
     with urllib.request.urlopen(req, timeout=25) as resp:
         raw = resp.read()
     data = json.loads(raw.decode("utf-8"))
-    return _validate_manifest_payload(data)
+    return _validate_trap_manifest_payload(data)
+
+
+def _load_edm_kit_manifest_from_url(url: str) -> dict[str, Any]:
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "BeatBattleKitManifest/1.0"},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        raw = resp.read()
+    data = json.loads(raw.decode("utf-8"))
+    return _validate_edm_manifest_payload(data)
 
 
 def _samples_sorted(d: Path) -> list[Path]:
@@ -240,58 +277,8 @@ _EDM_DATASET_ROOT = (
     else _EDM_DATASET_ROOT_FLAT
 )
 
-_EDM_FOLDER_BY_LOGICAL: dict[str, str] = {
-    "kicks": "kicks",
-    "808s": "808s",
-    "snares": "snaresclaps",
-    "claps": "snaresclaps",
-    "hihats": "hihats",
-    "openhats": "crashes",
-    "percs": "percs",
-    "fx": "fx",
-    "Vox": "shakersriders",
-}
-
-# Current EDM CDN layout has no ``EDM/808s/`` (low end is in ``kicks/``); ``keys["808s"]`` may be [].
-EDM_MANIFEST_OPTIONAL_KEYS: frozenset[str] = frozenset({"808s"})
-
-# R2 / pack layouts: canonical names match ``_EDM_FOLDER_BY_LOGICAL`` values;
-# aliases cover common pack folder naming (must match real bucket prefixes).
-_EDM_SUBDIR_ALIASES: dict[str, tuple[str, ...]] = {
-    "snaresclaps": ("snaresclaps", "snares", "snares_claps"),
-    "crashes": ("crashes", "open_hats", "openhats"),
-    "808s": ("808s", "808", "sub", "subs", "sub_bass"),
-    "fx": (
-        "fx",
-        "impactsrisers",
-        "impactrisers",
-        "impacts_risers",
-        "impact_risers",
-        "effects",
-    ),
-    "shakersriders": (
-        "shakersriders",
-        "shakersrides",
-        "shakers_rides",
-        "shakers_riders",
-        "vox",
-        "Vox",
-    ),
-}
-
-
-def _resolve_edm_subdir(canonical: str) -> str:
-    """First existing ``<edm_root>/<name>/`` for canonical category."""
-    primary = _EDM_DATASET_ROOT / canonical
-    if primary.is_dir():
-        return canonical
-    for alt in _EDM_SUBDIR_ALIASES.get(canonical, ()):
-        if alt == canonical:
-            continue
-        p = _EDM_DATASET_ROOT / alt
-        if p.is_dir():
-            return alt
-    return canonical
+# R2 builder may warn instead of exit when these slots are empty (new packs should fill all).
+EDM_MANIFEST_OPTIONAL_KEYS: frozenset[str] = frozenset()
 
 
 def _configured_kit_manifest_edm_path() -> Path | None:
@@ -310,24 +297,13 @@ def _remote_kit_manifest_edm_url() -> str | None:
 
 
 def build_kit_manifest_edm() -> dict[str, Any]:
-    """Scan ``dataset/EDM/<category>/`` (or nested mirror); emit logical ``edm/…`` paths."""
+    """Scan ``dataset/EDM/<logical key>/``; emit ``edm/<Key>/…`` paths (matches R2 ``EDM/<Key>/``)."""
     out: dict[str, list[str]] = {}
-    resolved_sub: dict[str, str] = {}
-
-    def sub_for(canonical: str) -> str:
-        if canonical not in resolved_sub:
-            resolved_sub[canonical] = _resolve_edm_subdir(canonical)
-        return resolved_sub[canonical]
-
-    for key in _LIGHT_KIT_KEYS:
-        if key.startswith("synth"):
-            sub = "synths"
-        else:
-            sub = sub_for(_EDM_FOLDER_BY_LOGICAL[key])
-        d = _EDM_DATASET_ROOT / sub
+    for key in KIT_EDM_KEYS:
+        d = _EDM_DATASET_ROOT / key
         samples = _samples_sorted(d)
-        out[key] = [f"edm/{sub}/{p.name}" for p in samples]
-    return {"version": 5, "sampleRate": 44100, "keys": out}
+        out[key] = [f"edm/{key}/{p.name}" for p in samples]
+    return {"version": 7, "sampleRate": 44100, "keys": out}
 
 
 _DEFAULT_EDM_MANIFEST_PATH = _PROJECT_ROOT / "kit-manifest-edm-refined.json"
@@ -338,7 +314,7 @@ def get_kit_manifest_edm_cached() -> dict[str, Any]:
     path = _configured_kit_manifest_edm_path()
     if path is not None and path.is_file():
         try:
-            return _load_kit_manifest_json(path)
+            return _load_edm_kit_manifest_json(path)
         except (OSError, ValueError, json.JSONDecodeError) as e:
             warnings.warn(
                 f"KIT_MANIFEST_EDM_PATH {path}: {e!r}; trying remote / disk.",
@@ -348,7 +324,7 @@ def get_kit_manifest_edm_cached() -> dict[str, Any]:
     url = _remote_kit_manifest_edm_url()
     if url:
         try:
-            return _load_kit_manifest_from_url(url)
+            return _load_edm_kit_manifest_from_url(url)
         except Exception as e:
             warnings.warn(
                 f"KIT_MANIFEST_EDM_URL {url!r}: {e!r}; falling back to disk scan.",
@@ -357,7 +333,7 @@ def get_kit_manifest_edm_cached() -> dict[str, Any]:
 
     if _DEFAULT_EDM_MANIFEST_PATH.is_file():
         try:
-            return _load_kit_manifest_json(_DEFAULT_EDM_MANIFEST_PATH)
+            return _load_edm_kit_manifest_json(_DEFAULT_EDM_MANIFEST_PATH)
         except (OSError, ValueError, json.JSONDecodeError) as e:
             warnings.warn(
                 f"Default EDM manifest {_DEFAULT_EDM_MANIFEST_PATH}: {e!r}; disk scan.",
@@ -381,7 +357,7 @@ def get_kit_manifest_cached() -> dict[str, Any]:
     path = _configured_kit_manifest_path()
     if path is not None and path.is_file():
         try:
-            return _load_kit_manifest_json(path)
+            return _load_trap_kit_manifest_json(path)
         except (OSError, ValueError, json.JSONDecodeError) as e:
             warnings.warn(
                 f"KIT_MANIFEST_PATH {path}: {e!r}; trying remote / disk.",

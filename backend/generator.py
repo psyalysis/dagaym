@@ -585,6 +585,35 @@ _LIGHT_KIT_KEYS: tuple[str, ...] = (
     "kicks",
 )
 
+# EDM R2: one folder per logical key under ``EDM/<PascalCase>/`` (see kit-manifest-edm-refined.json).
+KIT_EDM_SYNTH_KEYS: tuple[str, ...] = (
+    "ArpSynths",
+    "BassSynths",
+    "LeadSynths",
+    "PadSynths",
+    "PluckSynths",
+    "SynthSynths",
+)
+KIT_EDM_KEYS: tuple[str, ...] = (
+    "ArpSynths",
+    "BassSynths",
+    "Claps",
+    "ClosedHats",
+    "Cymbals",
+    "ImpactsRisers",
+    "Kicks",
+    "LeadSynths",
+    "OpenHats",
+    "PadSynths",
+    "Percs",
+    "PluckSynths",
+    "Snares",
+    "SynthSynths",
+)
+KIT_EDM_DRUM_KEYS: tuple[str, ...] = tuple(
+    k for k in KIT_EDM_KEYS if k not in set(KIT_EDM_SYNTH_KEYS)
+)
+
 
 def generate_light_stem(
     seed: int, slot_index: int, logical: str, out_dir: Path, spice: float = 0.3

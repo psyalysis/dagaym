@@ -52,3 +52,13 @@ def pick_index(seed: int, slot_index: int, spice: float, n: int) -> int:
     if idx >= n:
         idx = n - 1
     return idx
+
+
+# EDM: fourth synth slot is one of three folders (matches ``pickEdmFourthSynthKey`` in JS).
+EDM_VARIANT_PICK_SLOT = 0xED01
+EDM_VARIANT_POOL: tuple[str, ...] = ("ArpSynths", "PadSynths", "SynthSynths")
+
+
+def pick_edm_fourth_synth_key(seed: int, spice: float) -> str:
+    i = pick_index(seed, EDM_VARIANT_PICK_SLOT, spice, len(EDM_VARIANT_POOL))
+    return EDM_VARIANT_POOL[i]

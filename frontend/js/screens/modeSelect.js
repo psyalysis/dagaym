@@ -15,80 +15,13 @@ import {
   showRankUpOverlay,
 } from "../rankUi.js";
 import { mountAuthCornerGuest, mountAuthCornerMenu } from "../authCorner.js";
+import { transitionPanelHeight } from "../panelHeightTransition.js";
 import { playSfxMajor, playSfxMinor, playSfxOff, playSfxOn } from "../sfx.js";
 import { mountSoloScreen } from "../solo.js";
 
 const CHILI_SRC = new URL("../../imgs/chili.png", import.meta.url).href;
 
 const MP_LOCK_MSG = "Log in to play multiplayer.";
-
-const MODE_PANEL_HEIGHT_MS = 280;
-const MODE_PANEL_EASE = "ease-out";
-
-function prefersReducedMotion() {
-  return (
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-/**
- * Smoothly resize the central panel when landing vs mode-choice content changes.
- * @param {HTMLElement | null} panel
- * @param {() => void} updateDom
- */
-function transitionModeSelectPanel(panel, updateDom) {
-  if (!panel) {
-    updateDom();
-    return;
-  }
-  if (prefersReducedMotion()) {
-    updateDom();
-    return;
-  }
-
-  const start = panel.getBoundingClientRect().height;
-  panel.style.height = `${start}px`;
-  panel.style.overflow = "hidden";
-
-  updateDom();
-  void panel.offsetHeight;
-
-  const end = panel.scrollHeight;
-  if (Math.abs(end - start) < 0.5) {
-    panel.style.height = "";
-    panel.style.overflow = "";
-    return;
-  }
-
-  panel.style.transition = `height ${MODE_PANEL_HEIGHT_MS / 1000}s ${MODE_PANEL_EASE}`;
-
-  requestAnimationFrame(() => {
-    panel.style.height = `${end}px`;
-  });
-
-  let cleaned = false;
-  let fallbackId = 0;
-
-  const finish = () => {
-    if (cleaned) return;
-    cleaned = true;
-    window.clearTimeout(fallbackId);
-    panel.style.height = "";
-    panel.style.overflow = "";
-    panel.style.transition = "";
-    panel.removeEventListener("transitionend", onTransitionEnd);
-  };
-
-  /** @param {TransitionEvent} e */
-  function onTransitionEnd(e) {
-    if (e.propertyName !== "height") return;
-    finish();
-  }
-
-  panel.addEventListener("transitionend", onTransitionEnd);
-  fallbackId = window.setTimeout(finish, MODE_PANEL_HEIGHT_MS + 80);
-}
 
 function multiplayerButtonHtml() {
   return isLoggedIn()
@@ -227,7 +160,7 @@ export function mountModeSelectScreen(root, ctx) {
   };
 
   const showModeChoice = () => {
-    transitionModeSelectPanel(
+    transitionPanelHeight(
       panel instanceof HTMLElement ? panel : null,
       () => {
         if (stepHome) stepHome.hidden = true;
@@ -242,7 +175,7 @@ export function mountModeSelectScreen(root, ctx) {
   };
 
   const showHomeLanding = () => {
-    transitionModeSelectPanel(
+    transitionPanelHeight(
       panel instanceof HTMLElement ? panel : null,
       () => {
         if (stepHome) stepHome.hidden = false;
@@ -270,7 +203,9 @@ export function mountModeSelectScreen(root, ctx) {
   leaderboardBtn?.addEventListener("click", () => {
     playSfxMajor();
     import("./leaderboardScreen.js").then((m) =>
-      ctx.navigate(m.mountLeaderboardScreen),
+      ctx.navigate(m.mountLeaderboardScreen, {
+        skipPanelEnterTransition: true,
+      }),
     );
   });
 

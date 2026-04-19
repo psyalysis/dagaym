@@ -4,7 +4,7 @@
 
 import { getCdnBase } from "./apiOrigin.js";
 
-const MANIFEST_STORAGE_KEY_PREFIX = "bb_kit_manifest_v17";
+const MANIFEST_STORAGE_KEY_PREFIX = "bb_kit_manifest_v19";
 const TARGET_RATE = 44100;
 
 export const KIT_SOUND_KEYS = [
@@ -22,9 +22,135 @@ export const KIT_SOUND_KEYS = [
   "kicks",
 ];
 
+/**
+ * All EDM manifest stems (``/api/kit-manifest?genre=edm`` must list every folder).
+ * The playable kit uses 12 stems: 4 synths + 8 drums (see ``getEdmKitSoundKeysForSeed``).
+ */
+export const KIT_EDM_MANIFEST_KEYS = [
+  "ArpSynths",
+  "BassSynths",
+  "Claps",
+  "ClosedHats",
+  "Cymbals",
+  "ImpactsRisers",
+  "Kicks",
+  "LeadSynths",
+  "OpenHats",
+  "PadSynths",
+  "Percs",
+  "PluckSynths",
+  "Snares",
+  "SynthSynths",
+];
+
+/** @deprecated Use ``KIT_EDM_MANIFEST_KEYS``. */
+export const KIT_SOUND_KEYS_EDM = KIT_EDM_MANIFEST_KEYS;
+
 export const SYNTH_KEYS = ["synth1", "synth2", "synth3"];
 
+const EDM_SYNTH_FIXED = /** @type {const} */ ([
+  "BassSynths",
+  "LeadSynths",
+  "PluckSynths",
+]);
+
+/** One of these is chosen per kit (same for everyone: seed + spice + ``EDM_VARIANT_PICK_SLOT``). */
+const EDM_VARIANT_POOL = /** @type {const} */ ([
+  "ArpSynths",
+  "PadSynths",
+  "SynthSynths",
+]);
+
+/** Dedicated slot for variant pick — must not overlap stem slots 0..11. */
+const EDM_VARIANT_PICK_SLOT = 0xed01;
+
+export const EDM_DRUM_KEYS_ORDERED = /** @type {const} */ ([
+  "Cymbals",
+  "ImpactsRisers",
+  "ClosedHats",
+  "OpenHats",
+  "Percs",
+  "Claps",
+  "Kicks",
+  "Snares",
+]);
+
 export const DRUM_KEYS = KIT_SOUND_KEYS.filter((k) => !k.startsWith("synth"));
+
+/**
+ * @param {number} seed
+ * @param {number} spice
+ * @returns {string}
+ */
+export function pickEdmFourthSynthKey(seed, spice) {
+  const i = pickIndex(
+    seed,
+    EDM_VARIANT_PICK_SLOT,
+    spice,
+    EDM_VARIANT_POOL.length,
+  );
+  return EDM_VARIANT_POOL[i];
+}
+
+/**
+ * Four synth slots: Bass, Lead, Pluck, plus one of Arp / Pad / Synth stack.
+ * @param {number} seed
+ * @param {number} spice
+ * @returns {string[]}
+ */
+export function getEdmSynthKeysForSeed(seed, spice) {
+  return [...EDM_SYNTH_FIXED, pickEdmFourthSynthKey(seed, spice)];
+}
+
+/**
+ * Full EDM kit key order (matches ``pickIndex`` slot indices 0..11).
+ * @param {number} seed
+ * @param {number} spice
+ * @returns {string[]}
+ */
+export function getEdmKitSoundKeysForSeed(seed, spice) {
+  return [...getEdmSynthKeysForSeed(seed, spice), ...EDM_DRUM_KEYS_ORDERED];
+}
+
+/**
+ * @param {string} [genre]
+ * @param {number} [seed] Required for EDM (lobby / solo kit).
+ * @param {number} [spice]
+ * @returns {readonly string[]}
+ */
+export function getKitSoundKeys(genre = "trap", seed, spice) {
+  if (normalizeKitGenre(genre) !== "edm") return KIT_SOUND_KEYS;
+  const s = Number(seed);
+  const p = Number(spice);
+  if (!Number.isFinite(s) || !Number.isFinite(p)) {
+    return getEdmKitSoundKeysForSeed(0, 0);
+  }
+  return getEdmKitSoundKeysForSeed(s, p);
+}
+
+/**
+ * @param {string} [genre]
+ * @param {number} [seed]
+ * @param {number} [spice]
+ * @returns {readonly string[]}
+ */
+export function getSynthKeys(genre = "trap", seed, spice) {
+  if (normalizeKitGenre(genre) !== "edm") return SYNTH_KEYS;
+  const s = Number(seed);
+  const p = Number(spice);
+  if (!Number.isFinite(s) || !Number.isFinite(p)) {
+    return getEdmSynthKeysForSeed(0, 0);
+  }
+  return getEdmSynthKeysForSeed(s, p);
+}
+
+/**
+ * @param {string} [genre]
+ * @returns {readonly string[]}
+ */
+export function getDrumKeys(genre = "trap") {
+  return normalizeKitGenre(genre) === "edm" ? EDM_DRUM_KEYS_ORDERED : DRUM_KEYS;
+}
 
 /** Dataset stems are OGG (CDN or /media/dataset); zips use this extension. */
 export const KIT_SOUND_FILE_EXT = "ogg";
@@ -207,23 +333,16 @@ function normalizeLegacyKitManifestKeys(data) {
   return data;
 }
 
-/** EDM kits may omit a dedicated 808 folder (see ``_EDM_FOLDER_BY_LOGICAL``). */
-const EDM_MANIFEST_OPTIONAL_EMPTY = new Set(["808s"]);
-
-function manifestSlotNonEmpty(key, genre) {
-  const g = normalizeKitGenre(genre);
-  if (g === "edm" && EDM_MANIFEST_OPTIONAL_EMPTY.has(key)) return false;
-  return true;
-}
-
 function isValidManifestShape(data, genre = "trap") {
   if (!data || typeof data !== "object" || typeof data.keys !== "object" || !data.keys)
     return false;
-  return KIT_SOUND_KEYS.every((k) => {
+  const need =
+    normalizeKitGenre(genre) === "edm" ? KIT_EDM_MANIFEST_KEYS : KIT_SOUND_KEYS;
+  return need.every((k) => {
     const arr = data.keys[k];
     if (!Array.isArray(arr)) return false;
     if (arr.length > 0) return true;
-    return !manifestSlotNonEmpty(k, genre);
+    return false;
   });
 }
 
@@ -518,11 +637,13 @@ export async function loadSynthBuffersAndMp3Base64Parallel({
   genre = "trap",
 }) {
   const keysObj = manifest.keys;
+  const kitSoundKeys = getKitSoundKeys(genre, seed, spice);
+  const synthKeys = getSynthKeys(genre, seed, spice);
   const buffers = /** @type {Record<string, AudioBuffer>} */ ({});
   const base64 = /** @type {Record<string, string>} */ ({});
   await Promise.all(
-    SYNTH_KEYS.map(async (key) => {
-      const slot = KIT_SOUND_KEYS.indexOf(key);
+    synthKeys.map(async (key) => {
+      const slot = kitSoundKeys.indexOf(key);
       const paths = keysObj[key];
       if (!paths?.length) throw new Error(`No samples for ${key}`);
       const idx = pickIndex(seed, slot, spice, paths.length);
@@ -578,11 +699,13 @@ export async function loadDrumKitBase64Parallel({
   genre = "trap",
 }) {
   const keysObj = manifest.keys;
-  const total = DRUM_KEYS.length;
+  const kitSoundKeys = getKitSoundKeys(genre, seed, spice);
+  const drumKeys = getDrumKeys(genre);
+  const total = drumKeys.length;
   let done = 0;
   const entries = await Promise.all(
-    DRUM_KEYS.map(async (key) => {
-      const slot = KIT_SOUND_KEYS.indexOf(key);
+    drumKeys.map(async (key) => {
+      const slot = kitSoundKeys.indexOf(key);
       const paths = keysObj[key];
       if (!paths?.length) {
         done += 1;
@@ -616,10 +739,11 @@ export async function buildKitFromSeed({
 }) {
   const manifest = await fetchKitManifest(apiBase, genre);
   const keysObj = manifest.keys;
+  const kitSoundKeys = getKitSoundKeys(genre, seed, spice);
   const out = /** @type {Record<string, string>} */ ({});
-  const n = KIT_SOUND_KEYS.length;
+  const n = kitSoundKeys.length;
   for (let i = 0; i < n; i++) {
-    const key = KIT_SOUND_KEYS[i];
+    const key = kitSoundKeys[i];
     const paths = keysObj[key];
     if (!paths?.length) {
       out[key] = "";

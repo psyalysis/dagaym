@@ -152,7 +152,10 @@ export function mountAuthCornerMenu(ctx, opts = {}) {
       history.pushState({ profile: un }, "", `/@${un}`);
     }
     import("./screens/profileScreen.js").then((m) =>
-      ctx.navigate(m.mountProfileScreen, { profileUsername: un }),
+      ctx.navigate(m.mountProfileScreen, {
+        profileUsername: un,
+        skipPanelEnterTransition: true,
+      }),
     );
   });
 
@@ -168,7 +171,9 @@ export function mountAuthCornerMenu(ctx, opts = {}) {
       el.querySelector("#auth-corner-lb")?.addEventListener("click", () => {
         playSfxMajor();
         import("./screens/leaderboardScreen.js").then((m) =>
-          ctx.navigate(m.mountLeaderboardScreen),
+          ctx.navigate(m.mountLeaderboardScreen, {
+            skipPanelEnterTransition: true,
+          }),
         );
       });
     }

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.generator import _LIGHT_KIT_KEYS
+from backend.generator import KIT_EDM_KEYS, _LIGHT_KIT_KEYS
 from backend import kit_manifest as km
 
 
@@ -16,6 +16,13 @@ def _minimal_manifest(keys_extra: dict | None = None) -> dict:
     if keys_extra:
         keys.update(keys_extra)
     return {"version": 5, "sampleRate": 44100, "keys": keys}
+
+
+def _minimal_edm_manifest(keys_extra: dict | None = None) -> dict:
+    keys: dict[str, list[str]] = {k: [] for k in KIT_EDM_KEYS}
+    if keys_extra:
+        keys.update(keys_extra)
+    return {"version": 7, "sampleRate": 44100, "keys": keys}
 
 
 @pytest.fixture(autouse=True)
@@ -73,20 +80,11 @@ def test_kit_manifest_edm_path_override(
     path = tmp_path / "kit-manifest-edm.json"
     path.write_text(
         json.dumps(
-            _minimal_manifest(
+            _minimal_edm_manifest(
                 {
-                    "snares": ["edm/snaresclaps/x.ogg"],
-                    "claps": ["edm/snaresclaps/x.ogg"],
-                    "hihats": ["edm/hihats/y.ogg"],
-                    "openhats": ["edm/crashes/z.ogg"],
-                    "808s": ["edm/808s/sub.ogg"],
-                    "percs": ["edm/percs/p.ogg"],
-                    "fx": ["edm/fx/f.ogg"],
-                    "Vox": ["edm/shakersriders/v.ogg"],
-                    "kicks": ["edm/kicks/k2.ogg"],
-                    "synth1": ["edm/synths/s.ogg"],
-                    "synth2": ["edm/synths/s.ogg"],
-                    "synth3": ["edm/synths/s.ogg"],
+                    "Kicks": ["edm/Kicks/k.ogg"],
+                    "Snares": ["edm/Snares/s.ogg"],
+                    "ClosedHats": ["edm/ClosedHats/h.ogg"],
                 },
             ),
         ),
@@ -95,60 +93,25 @@ def test_kit_manifest_edm_path_override(
     monkeypatch.setenv("KIT_MANIFEST_EDM_PATH", str(path))
     km.get_kit_manifest_edm_cached.cache_clear()
     data = km.get_kit_manifest_for_genre("edm")
-    assert data["keys"]["snares"] == ["edm/snaresclaps/x.ogg"]
-    assert data["keys"]["openhats"] == ["edm/crashes/z.ogg"]
+    assert data["keys"]["Kicks"] == ["edm/Kicks/k.ogg"]
+    assert data["keys"]["Snares"] == ["edm/Snares/s.ogg"]
 
 
-def test_edm_resolves_impactsrisers_and_shakersrides(
+def test_edm_disk_scan_emits_logical_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Packs may use ``impactsrisers`` / ``shakersrides`` instead of ``fx`` / ``shakersriders``."""
     edm_root = tmp_path / "EDM"
-    for sub, name in (
-        ("kicks", "k.ogg"),
-        ("snaresclaps", "s.ogg"),
-        ("hihats", "h.ogg"),
-        ("crashes", "c.ogg"),
-        ("percs", "p.ogg"),
-        ("impactsrisers", "f.ogg"),
-        ("shakersrides", "v.ogg"),
-        ("synths", "sy.ogg"),
-    ):
-        (edm_root / sub).mkdir(parents=True)
-        (edm_root / sub / name).write_bytes(b"\x00")
+    (edm_root / "ImpactsRisers").mkdir(parents=True)
+    (edm_root / "ImpactsRisers" / "f.ogg").write_bytes(b"\x00")
+    (edm_root / "PadSynths").mkdir(parents=True)
+    (edm_root / "PadSynths" / "p.ogg").write_bytes(b"\x00")
     monkeypatch.setattr(km, "_EDM_DATASET_ROOT", edm_root)
     monkeypatch.setenv("KIT_MANIFEST_EDM_URL", "")
     km.get_kit_manifest_edm_cached.cache_clear()
     data = km.build_kit_manifest_edm()
-    assert data["keys"]["fx"] == ["edm/impactsrisers/f.ogg"]
-    assert data["keys"]["Vox"] == ["edm/shakersrides/v.ogg"]
-
-
-def test_edm_resolves_snares_folder_when_snaresclaps_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Some EDM packs use ``snares/`` on R2 instead of ``snaresclaps/``."""
-    edm_root = tmp_path / "EDM"
-    (edm_root / "snares").mkdir(parents=True)
-    (edm_root / "snares" / "hit.ogg").write_bytes(b"\x00")
-    for sub, name in (
-        ("kicks", "k.ogg"),
-        ("hihats", "h.ogg"),
-        ("crashes", "c.ogg"),
-        ("percs", "p.ogg"),
-        ("fx", "f.ogg"),
-        ("shakersriders", "v.ogg"),
-        ("synths", "s.ogg"),
-    ):
-        (edm_root / sub).mkdir(exist_ok=True)
-        (edm_root / sub / name).write_bytes(b"\x00")
-    monkeypatch.setattr(km, "_EDM_DATASET_ROOT", edm_root)
-    monkeypatch.setenv("KIT_MANIFEST_EDM_URL", "")
-    km.get_kit_manifest_edm_cached.cache_clear()
-    data = km.build_kit_manifest_edm()
-    assert any(p.startswith("edm/snares/") for p in data["keys"]["snares"])
-    assert any(p.startswith("edm/snares/") for p in data["keys"]["claps"])
-    assert data["keys"]["808s"] == []
+    assert data["keys"]["ImpactsRisers"] == ["edm/ImpactsRisers/f.ogg"]
+    assert data["keys"]["PadSynths"] == ["edm/PadSynths/p.ogg"]
+    assert data["keys"]["Kicks"] == []
 
 
 def test_kit_manifest_legacy_cdn_keys_normalized(
