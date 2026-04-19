@@ -54,6 +54,35 @@ function beatContentTypeForR2(file) {
   throw new Error("Only MP3 uploads are allowed right now.");
 }
 
+/**
+ * @param {Response} res
+ * @returns {Promise<string>}
+ */
+async function uploadErrorMessage(res) {
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    try {
+      const txt = await res.text();
+      if (txt) return txt;
+    } catch {
+      /* ignore */
+    }
+    return res.statusText || "Upload failed";
+  }
+  const detail = data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  if (Array.isArray(detail) && detail[0]) {
+    const msg = String(detail[0]?.msg || "").trim();
+    if (msg.includes("content_type must be audio/mpeg")) {
+      return "Only MP3 uploads are allowed right now.";
+    }
+    if (msg) return msg;
+  }
+  return res.statusText || "Upload failed";
+}
+
 export function mountUploadScreen(root, ctx) {
   setAppErrorContext({
     screen: "Upload",
@@ -114,7 +143,7 @@ export function mountUploadScreen(root, ctx) {
 
   const form = root.querySelector("#upload-form");
   const statusEl = root.querySelector("#upload-status");
-  const uploadHintEl = root.querySelector(".arcade-hint");
+  const uploadHintEl = root.querySelector(".screen.upload > .arcade-hint");
   if (uploadHintEl) uploadHintEl.textContent = "MP3 only - max 30MB - up to 45s";
   const uploadTotalSec = UPLOAD_WINDOW_SEC;
 
@@ -271,8 +300,7 @@ export function mountUploadScreen(root, ctx) {
           throw new Error("R2 not configured — refresh and try again.");
         }
         if (!pres.ok) {
-          const t = await pres.text();
-          throw new Error(t || pres.statusText);
+          throw new Error(await uploadErrorMessage(pres));
         }
         /** @type {{ upload_id: string, put_url: string, required_headers: Record<string, string> }} */
         const presBody = await pres.json();
@@ -299,8 +327,7 @@ export function mountUploadScreen(root, ctx) {
           }),
         });
         if (!comp.ok) {
-          const t = await comp.text();
-          throw new Error(t || comp.statusText);
+          throw new Error(await uploadErrorMessage(comp));
         }
       } else {
         const fd = new FormData();
@@ -315,8 +342,7 @@ export function mountUploadScreen(root, ctx) {
           },
         );
         if (!res.ok) {
-          const t = await res.text();
-          throw new Error(t || res.statusText);
+          throw new Error(await uploadErrorMessage(res));
         }
       }
       lobbyView = applyMatchWsToLobby(lobbyView, {
@@ -330,7 +356,9 @@ export function mountUploadScreen(root, ctx) {
       if (statusEl) statusEl.textContent = um;
       showAppError({
         message: `Upload failed: ${um}`,
-        hint: "Check your connection and file size, then try again.",
+        hint: um.includes("Only MP3")
+          ? "WAV uploads are temporarily disabled. Export as MP3 and try again."
+          : "Check your connection and file size, then try again.",
         errorCode: "UPLOAD_FETCH",
       });
     }
