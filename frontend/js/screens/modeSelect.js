@@ -10,6 +10,10 @@ import {
   shouldShowReconnectOverlay,
 } from "../mpReconnectPending.js";
 import {
+  fetchMpPauseStatus,
+  MP_PAUSE_MESSAGE,
+} from "../mpPauseStatus.js";
+import {
   hasSeenRankUp,
   RANK_PENDING_KEY,
   showRankUpOverlay,
@@ -52,7 +56,14 @@ export function mountModeSelectScreen(root, ctx) {
         <img src="${CHILI_SRC}" class="home-chili" width="96" height="96" alt="" decoding="async" />
       </div>
       <div class="screen mode-select arcade-panel">
-        <h1 class="arcade-title">BEAT BATTLE</h1>
+        <div class="screen-topbar mode-select-topbar">
+          <div class="screen-topbar-start">
+            <span class="screen-topbar-lead-spacer" id="mode-select-lead-spacer" aria-hidden="true"></span>
+            <button type="button" class="arcade-back" id="mode-select-back" aria-label="Back" hidden>&lt;</button>
+          </div>
+          <h1 class="arcade-title screen-topbar-title">BEAT BATTLE</h1>
+          <span class="screen-topbar-spacer" aria-hidden="true"></span>
+        </div>
         <p class="arcade-tagline mode-select-tagline--concealed" id="mode-select-tagline" aria-hidden="true">Choose Your Mode</p>
         <div class="arcade-actions arcade-actions--mode arcade-actions--mode-stack">
           <div id="mode-select-step-home" class="mode-select-step">
@@ -66,7 +77,6 @@ export function mountModeSelectScreen(root, ctx) {
           </div>
         </div>
         <p class="arcade-hint mode-mp-lock-hint" id="mp-lock-hint" hidden></p>
-        <p class="mode-select-back-wrap"><button type="button" class="mode-select-back" id="mode-select-back" hidden>Back</button></p>
       </div>
     </div>
   `;
@@ -153,11 +163,21 @@ export function mountModeSelectScreen(root, ctx) {
         });
         return;
       }
+      const paused = await fetchMpPauseStatus().catch(() => false);
+      if (paused) {
+        if (lockHint) {
+          lockHint.textContent = MP_PAUSE_MESSAGE;
+          lockHint.hidden = false;
+        }
+        return;
+      }
       import("./multiplayerHub.js").then((m) =>
         ctx.navigate(m.mountMultiplayerHubScreen),
       );
     })();
   };
+
+  const leadSpacer = root.querySelector("#mode-select-lead-spacer");
 
   const showModeChoice = () => {
     transitionPanelHeight(
@@ -170,6 +190,7 @@ export function mountModeSelectScreen(root, ctx) {
           tagline.setAttribute("aria-hidden", "false");
         }
         if (backBtn) backBtn.hidden = false;
+        if (leadSpacer) leadSpacer.hidden = true;
       },
     );
   };
@@ -185,6 +206,7 @@ export function mountModeSelectScreen(root, ctx) {
           tagline.setAttribute("aria-hidden", "true");
         }
         if (backBtn) backBtn.hidden = true;
+        if (leadSpacer) leadSpacer.hidden = false;
         if (lockHint) lockHint.hidden = true;
       },
     );

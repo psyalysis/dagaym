@@ -16,6 +16,10 @@ import { mountJoinCodeScreen } from "./joinCode.js";
 import { mountServerBrowserScreen } from "./serverBrowser.js";
 import { mountSpiceSelectScreen } from "./spiceSelect.js";
 import { supporterDisplayNameInnerHtml } from "../supporters.js";
+import {
+  fetchMpPauseStatus,
+  MP_PAUSE_MESSAGE,
+} from "../mpPauseStatus.js";
 
 export function mountMultiplayerHubScreen(root, ctx) {
   if (!isLoggedIn()) {
@@ -40,6 +44,26 @@ export function mountMultiplayerHubScreen(root, ctx) {
     if (cancelled) return;
     if (!ok) {
       ctx.navigate(mountModeSelectScreen);
+      return;
+    }
+
+    const paused = await fetchMpPauseStatus().catch(() => false);
+    if (cancelled) return;
+    if (paused) {
+      root.innerHTML = `
+    <div class="screen mp-hub arcade-panel screen--vert-center">
+      <div class="screen-topbar">
+        <button type="button" class="arcade-back" id="mp-hub-back-pause" aria-label="Back">&lt;</button>
+        <h2 class="arcade-heading screen-topbar-title">MULTIPLAYER</h2>
+        <span class="screen-topbar-spacer" aria-hidden="true"></span>
+      </div>
+      <p class="arcade-hint">${MP_PAUSE_MESSAGE}</p>
+    </div>
+  `;
+      root.querySelector("#mp-hub-back-pause")?.addEventListener("click", () => {
+        playSfxMinor();
+        ctx.navigate(mountModeSelectScreen);
+      });
       return;
     }
 

@@ -1097,6 +1097,29 @@ button.credits-entry-name--link:focus-visible {
   margin-bottom: 0;
 }
 
+.screen-topbar .arcade-title {
+  margin-bottom: 0;
+}
+
+/* Home: back or lead balance in column 1 */
+.screen-topbar-start {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 2rem;
+  flex-shrink: 0;
+}
+
+.screen-topbar-lead-spacer {
+  box-sizing: border-box;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .screen-topbar-spacer {
   grid-column: 3;
   width: 2rem;
@@ -2336,6 +2359,26 @@ button.credits-entry-name--link:focus-visible {
   text-align: left;
 }
 
+.screen.results .results-screen-topbar {
+  grid-template-columns: 2rem 1fr auto;
+}
+
+.results-screen-topbar-end {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-self: end;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: min(14rem, 100%);
+}
+
+.results-screen-topbar-end .mp-progress-hint-wrap {
+  margin: 0;
+  text-align: right;
+}
+
 .results-rematch-roster-col {
   display: flex;
   flex-direction: column;
@@ -3233,34 +3276,6 @@ button.auth-corner-card.auth-corner-menu-toggle {
   width: 100%;
 }
 
-.mode-select-back-wrap {
-  margin: 0.85rem 0 0;
-  text-align: center;
-}
-
-.mode-select-back {
-  padding: 0;
-  border: none;
-  font: inherit;
-  font-size: 0.58rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  background: transparent;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
-
-.mode-select-back:hover {
-  color: var(--text-heading);
-}
-
-.mode-select-back:focus-visible {
-  outline: 1px solid var(--red-bright);
-  outline-offset: 3px;
-}
-
 .screen.lobby {
   position: relative;
 }
@@ -3909,26 +3924,6 @@ button.auth-corner-card.auth-corner-menu-toggle {
   color: var(--text);
   word-break: break-word;
   text-transform: none;
-}
-
-/* Topbar (shared w/ leaderboard) */
-
-.screen-topbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
-}
-
-.screen-topbar-title {
-  flex: 1;
-  text-align: center;
-  margin: 0;
-}
-
-.screen-topbar-spacer {
-  width: 1.65rem;
-  flex-shrink: 0;
 }
 
 @media (max-width: 480px) {

@@ -131,23 +131,26 @@ export function mountResultsScreen(root, ctx) {
         : "";
 
   const showRematch = participants.length > 0 && ctx.mpWs instanceof WebSocket;
-  const resultsHeadRow = showRematch
-    ? `<div class="mp-panel-head results-panel-head" aria-label="Results and rematch">
-        <h2 class="arcade-heading mp-panel-head-title">RESULTS</h2>
-        <div class="mp-panel-head-timer" aria-hidden="true"></div>
-        <div class="mp-panel-head-roster results-rematch-roster-col">
+  const resultsTopBar = showRematch
+    ? `<div class="screen-topbar results-screen-topbar" aria-label="Results and rematch">
+        <button type="button" class="arcade-back" id="results-back" aria-label="Back">&lt;</button>
+        <h2 class="arcade-heading screen-topbar-title">RESULTS</h2>
+        <div class="results-screen-topbar-end">
           <span id="results-rematch-hint" class="mp-progress-hint-wrap hidden" aria-live="polite"></span>
           <button type="button" class="arcade-btn arcade-btn-secondary results-rematch-btn" id="results-rematch-btn">Rematch</button>
         </div>
       </div>`
-    : `<h2 class="arcade-heading results-title-standalone">RESULTS</h2>`;
+    : `<div class="screen-topbar results-screen-topbar">
+        <button type="button" class="arcade-back" id="results-back" aria-label="Back">&lt;</button>
+        <h2 class="arcade-heading screen-topbar-title">RESULTS</h2>
+        <span class="screen-topbar-spacer" aria-hidden="true"></span>
+      </div>`;
 
   root.innerHTML = `
     <div class="screen results arcade-panel">
-      ${resultsHeadRow}
+      ${resultsTopBar}
       ${winnerBlock}
       ${beatsSection}
-      <button type="button" class="arcade-btn arcade-btn-primary" id="results-home">Main menu</button>
     </div>
   `;
 
@@ -376,7 +379,7 @@ export function mountResultsScreen(root, ctx) {
     }
   });
 
-  root.querySelector("#results-home")?.addEventListener("click", async () => {
+  const goResultsHome = async () => {
     playSfxMinor();
     teardownClose = true;
     clearMpChatSession();
@@ -421,6 +424,10 @@ export function mountResultsScreen(root, ctx) {
     import("./modeSelect.js").then((m) =>
       ctx.navigate(m.mountModeSelectScreen),
     );
+  };
+
+  root.querySelector("#results-back")?.addEventListener("click", () => {
+    void goResultsHome();
   });
 
   return () => {

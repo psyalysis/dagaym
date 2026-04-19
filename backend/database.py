@@ -96,6 +96,15 @@ def init_db() -> None:
     _add_column_if_missing("users", "profile_icon_key", "VARCHAR(32)")
     _add_column_if_missing("users", "created_at", "TIMESTAMP DEFAULT NOW()")
 
+    if _IS_SQLITE:
+        _add_column_if_missing(
+            "site_stats", "pause_new_matches", "INTEGER NOT NULL DEFAULT 0"
+        )
+    else:
+        _add_column_if_missing(
+            "site_stats", "pause_new_matches", "BOOLEAN NOT NULL DEFAULT FALSE"
+        )
+
     db = SessionLocal()
     try:
         row = db.get(models.SiteStats, 1)

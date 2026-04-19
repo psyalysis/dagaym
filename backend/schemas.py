@@ -65,6 +65,10 @@ class LeaderboardEntry(BaseModel):
     rank_index: int = 0
 
 
+class MpPauseStatusResponse(BaseModel):
+    pause_new_matches: bool
+
+
 class MeResponse(BaseModel):
     username: str
     wins: int

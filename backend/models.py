@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -81,6 +81,9 @@ class SiteStats(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     total_visits: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pause_new_matches: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
 
 
 class Supporter(Base):

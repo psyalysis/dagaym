@@ -53,6 +53,7 @@ from .generator import generate_kit_light
 from .kit_manifest import get_kit_manifest_cached, get_kit_manifest_for_genre
 from .kit_payload import encode_paths_to_sounds
 from .models import ProfileComment, SiteStats, Supporter, User, UserProfileIconOwnership
+from .pause_matches_cache import pause_new_matches_cached
 from .multiplayer import LobbyManager
 from .multiplayer.lobby import LobbyState
 from .multiplayer.ws import router as ws_router
@@ -67,6 +68,7 @@ from .schemas import (
     LeaderboardEntry,
     LoginRequest,
     MeResponse,
+    MpPauseStatusResponse,
     ProfileCommentCreate,
     ProfileCommentOut,
     ProfileResponse,
@@ -523,6 +525,13 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/mp-pause-status", response_model=MpPauseStatusResponse)
+async def get_mp_pause_status() -> MpPauseStatusResponse:
+    """When true, the server should not start or join new matches (5s server cache)."""
+    paused = await asyncio.to_thread(pause_new_matches_cached)
+    return MpPauseStatusResponse(pause_new_matches=paused)
+
+
 @app.post("/api/stats/visit")
 async def post_stats_visit() -> dict[str, int]:
     """Increment once per frontend boot (full page load).
@@ -774,6 +783,14 @@ def get_leaderboard(db: Session = Depends(get_db)) -> list[LeaderboardEntry]:
 async def list_public_lobbies(request: Request) -> ORJSONResponse:
     """Joinable public lobbies (pre-game, not full)."""
     global _lobbies_cache
+    if await asyncio.to_thread(pause_new_matches_cached):
+        return ORJSONResponse(
+            content=[],
+            headers={
+                "Cache-Control": "private, no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+            },
+        )
     now = _time.time()
     if _lobbies_cache is not None:
         exp, cached = _lobbies_cache
@@ -804,6 +821,8 @@ async def check_public_lobby_joinable(
     """Preflight for server-browser join — same visibility as GET /api/lobbies (no extra leaks)."""
     raw = (lobby_id or "").strip()
     if len(raw) < 3 or len(raw) > 32:
+        raise HTTPException(status_code=404, detail="Lobby not available.")
+    if await asyncio.to_thread(pause_new_matches_cached):
         raise HTTPException(status_code=404, detail="Lobby not available.")
     manager: LobbyManager = request.app.state.manager
     if await manager.is_public_lobby_joinable(raw):

@@ -6,7 +6,7 @@ import { setAppErrorContext } from "../errorToast.js";
 import { mountAuthCornerLoginGuest } from "../authCorner.js";
 import { initDevStatsPanel } from "../devStatsPanel.js";
 import { refreshSupportersFromApi } from "../supporters.js";
-import { playSfxMajor } from "../sfx.js";
+import { playSfxMajor, playSfxMinor } from "../sfx.js";
 import { mountModeSelectScreen } from "./modeSelect.js";
 
 export function mountLoginScreen(root, ctx) {
@@ -14,7 +14,7 @@ export function mountLoginScreen(root, ctx) {
   root.innerHTML = `
     <div class="screen login-screen arcade-panel screen--vert-center">
       <div class="screen-topbar">
-        <span class="screen-topbar-spacer" aria-hidden="true"></span>
+        <button type="button" class="arcade-back" id="login-back" aria-label="Back">&lt;</button>
         <h2 class="arcade-heading screen-topbar-title">LOGIN</h2>
         <span class="screen-topbar-spacer" aria-hidden="true"></span>
       </div>
@@ -34,6 +34,11 @@ export function mountLoginScreen(root, ctx) {
   const errEl = () => root.querySelector("#login-err");
 
   mountAuthCornerLoginGuest(ctx);
+
+  root.querySelector("#login-back")?.addEventListener("click", () => {
+    playSfxMinor();
+    ctx.navigate(mountModeSelectScreen);
+  });
 
   root.querySelector("#login-go")?.addEventListener("click", async () => {
     const u = (root.querySelector("#login-user")?.value || "").trim();

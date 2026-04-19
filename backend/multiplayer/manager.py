@@ -25,6 +25,7 @@ from typing import Any
 from starlette.websockets import WebSocket
 
 from .. import beats_r2
+from ..pause_matches_cache import pause_new_matches_cached
 from .lobby import (
     LOBBY_RESULTS_TTL_S,
     MAX_LOBBY_PLAYERS,
@@ -55,6 +56,8 @@ from .mp_chat_text import chat_cooldown_elapsed, normalize_and_validate_mp_chat_
 
 # How long we keep your seat after the tab drops (soft disconnect). Tests crank this way down.
 MP_WS_GRACE_S = 60.0
+
+PAUSE_NEW_MATCHES_MSG = "Server is restarting. Waiting for matches to finish."
 
 
 class LobbyManager:
@@ -497,6 +500,17 @@ class LobbyManager:
         await self.send_to(player_id, payload)
         return ref
 
+    async def _reject_if_pause_new_matches(self, player_id: str) -> bool:
+        """Notify player and return True when new multiplayer matches are paused."""
+        if not await asyncio.to_thread(pause_new_matches_cached):
+            return False
+        await self.send_player_error(
+            player_id,
+            PAUSE_NEW_MATCHES_MSG,
+            error_code="MP_PAUSE_NEW_MATCHES",
+        )
+        return True
+
     @staticmethod
     def _normalize_lobby_code(code: str) -> str:
         s = (
@@ -542,6 +556,8 @@ class LobbyManager:
                 "Select at least one heat level (0.25, 0.5, 0.85).",
             )
             return
+        if await self._reject_if_pause_new_matches(player_id):
+            return
         sess = self._session_user(player_id)
         if sess is None:
             await self.send_player_error(player_id, "Not authenticated.")
@@ -569,6 +585,8 @@ class LobbyManager:
         await self._emit_join_snapshots(lobby.id, player_id, display_name)
 
     async def join_lobby_by_code(self, player_id: str, name: str, code: str) -> None:
+        if await self._reject_if_pause_new_matches(player_id):
+            return
         sess = self._session_user(player_id)
         if sess is None:
             await self.send_player_error(player_id, "Not authenticated.")
@@ -615,6 +633,8 @@ class LobbyManager:
         await self._emit_join_snapshots(lobby.id, player_id, display_name)
 
     async def join_lobby_public(self, player_id: str, name: str, lobby_id: str) -> None:
+        if await self._reject_if_pause_new_matches(player_id):
+            return
         sess = self._session_user(player_id)
         if sess is None:
             await self.send_player_error(player_id, "Not authenticated.")
@@ -1181,6 +1201,31 @@ class LobbyManager:
             shutil.rmtree(d, ignore_errors=True)
 
     async def _rematch_to_new_lobby(self, old_id: str) -> None:
+        if await asyncio.to_thread(pause_new_matches_cached):
+            notify_ids: list[str] = []
+            async with self._meta_lock:
+                old = self.lobbies.get(old_id)
+                if old and old.state == LobbyState.RESULTS:
+                    old.rematch_pending.clear()
+                    notify_ids = list(old.players.keys())
+            if notify_ids:
+                await self.broadcast(
+                    old_id,
+                    {
+                        "type": "rematch_vote_update",
+                        "voted_player_ids": [],
+                        "voter_id": "",
+                        "name": "",
+                    },
+                )
+                for pid in notify_ids:
+                    await self.send_player_error(
+                        pid,
+                        PAUSE_NEW_MATCHES_MSG,
+                        error_code="MP_PAUSE_NEW_MATCHES",
+                    )
+            return
+
         new_id: str | None = None
         async with self._meta_lock:
             old = self.lobbies.get(old_id)
@@ -1221,6 +1266,7 @@ class LobbyManager:
                 )
 
     async def rematch_vote(self, player_id: str) -> None:
+        paused = await asyncio.to_thread(pause_new_matches_cached)
         err: str | None = None
         lobby_id: str | None = None
         voted_ids: list[str] = []
@@ -1241,17 +1287,24 @@ class LobbyManager:
                 elif player_id in lobby.rematch_pending:
                     pass
                 else:
-                    lobby.rematch_pending.add(player_id)
-                    lobby.rematch_pending.intersection_update(set(lobby.players.keys()))
-                    lobby_id = lid
-                    voted_ids = list(lobby.rematch_pending)
-                    voter_name = lobby.players[player_id].name
-                    voter_id = player_id
-                    broadcast_vote = True
-                    cur = set(lobby.players.keys())
-                    all_voted = len(cur) >= 2 and cur == lobby.rematch_pending
+                    if paused:
+                        err = PAUSE_NEW_MATCHES_MSG
+                    else:
+                        lobby.rematch_pending.add(player_id)
+                        lobby.rematch_pending.intersection_update(set(lobby.players.keys()))
+                        lobby_id = lid
+                        voted_ids = list(lobby.rematch_pending)
+                        voter_name = lobby.players[player_id].name
+                        voter_id = player_id
+                        broadcast_vote = True
+                        cur = set(lobby.players.keys())
+                        all_voted = len(cur) >= 2 and cur == lobby.rematch_pending
         if err:
-            await self.send_player_error(player_id, err)
+            await self.send_player_error(
+                player_id,
+                err,
+                error_code="MP_PAUSE_NEW_MATCHES" if err == PAUSE_NEW_MATCHES_MSG else None,
+            )
             return
         if not broadcast_vote:
             return
