@@ -3,6 +3,7 @@
  */
 
 import { getCdnBase } from "./apiOrigin.js";
+import { getVolume } from "./volume.js";
 
 const MANIFEST_STORAGE_KEY_PREFIX = "bb_kit_manifest_v17";
 const TARGET_RATE = 44100;
@@ -638,9 +639,12 @@ export async function buildKitFromSeed({
  * @param {AudioBuffer} buffer
  */
 export function playBufferOnce(ac, buffer) {
+  const gain = ac.createGain();
+  gain.gain.value = getVolume();
+  gain.connect(ac.destination);
   const src = ac.createBufferSource();
   src.buffer = buffer;
-  src.connect(ac.destination);
+  src.connect(gain);
   void ac.resume().catch(() => {});
   src.start(0);
 }

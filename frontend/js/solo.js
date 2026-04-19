@@ -15,6 +15,7 @@ import {
 import { kitSlotDisplayLabel, mountKitLayoutShell } from "./kitGridLayout.js";
 import { playSfxMajor, playSfxMinor, playSfxOn } from "./sfx.js";
 import { runSynthReveal } from "./synthReveal.js";
+import { getVolume } from "./volume.js";
 
 const SOUND_KEYS = KIT_SOUND_KEYS;
 
@@ -153,6 +154,7 @@ export function mountSoloScreen(root, ctx) {
     const audio = document.createElement("audio");
     audio.id = `audio-${key}`;
     audio.preload = "auto";
+    audio.volume = getVolume();
 
     bindWaveformPlayback(key, waveWrap, audio);
 
