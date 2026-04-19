@@ -19,9 +19,7 @@ def test_finalize_results_includes_participants_shape() -> None:
     lobby.uploaded = {"p1", "p2"}
     lobby.votes = {"p1": "p2", "p2": "p1"}
 
-    participants = [
-        {"player_id": pid, "name": lobby.players[pid].name} for pid in lobby.players
-    ]
+    participants = [{"player_id": pid, "name": lobby.players[pid].name} for pid in lobby.players]
     assert participants == [
         {"player_id": "p1", "name": "Alice"},
         {"player_id": "p2", "name": "Bob"},
@@ -90,8 +88,7 @@ def test_rematch_migrates_to_new_lobby_and_broadcasts(tmp_path: Path) -> None:
         for ws in (ws1, ws2):
             payloads = [json.loads(s) for s in ws.sent]
             assert any(
-                p.get("type") == "lobby_update"
-                and p.get("lobby", {}).get("state") == "lobby"
+                p.get("type") == "lobby_update" and p.get("lobby", {}).get("state") == "lobby"
                 for p in payloads
             )
 

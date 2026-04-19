@@ -95,10 +95,6 @@ def resolve_sound(stem: str, raw: dict[str, Any]) -> EffectiveSoundParams:
         raise ValueError(f"effective duration_s must be > 0 for {stem}")
     return EffectiveSoundParams(
         target_samples=max(1, int(round(SAMPLE_RATE * dur))),
-        normalize_peak=_clamp01(
-            float(base["normalize_peak"]) * m("normalize_peak_multiplier")
-        ),
-        fade_out_amt=_clamp01(
-            float(base["fade_out_amt"]) * m("fade_out_amt_multiplier")
-        ),
+        normalize_peak=_clamp01(float(base["normalize_peak"]) * m("normalize_peak_multiplier")),
+        fade_out_amt=_clamp01(float(base["fade_out_amt"]) * m("fade_out_amt_multiplier")),
     )

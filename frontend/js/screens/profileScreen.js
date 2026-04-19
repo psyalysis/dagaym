@@ -1,9 +1,4 @@
-/**
- * Profile screen — public user profile at /@username.
- *
- * Shows profile card (avatar, username, rank, stats), editable bio (own profile),
- * and a comment wall that logged-in users can post to.
- */
+/** /@username — card, bio if it's you, comments for everyone */
 import { isLoggedIn, getUsername } from "../authApi.js";
 import {
   fetchProfile,
@@ -76,7 +71,9 @@ export function mountProfileScreen(root, ctx) {
 
   setAppErrorContext({ screen: "Profile", user: targetUsername });
 
-  const isOwn = isLoggedIn() && getUsername().toLowerCase() === targetUsername.toLowerCase();
+  const isOwn =
+    isLoggedIn() &&
+    getUsername().toLowerCase() === targetUsername.toLowerCase();
   const loggedIn = isLoggedIn();
   const myUsername = getUsername();
 
@@ -131,7 +128,6 @@ export function mountProfileScreen(root, ctx) {
 
   root.querySelector("#profile-back")?.addEventListener("click", () => {
     playSfxMinor();
-    // Navigate back; if history exists go back, otherwise home
     if (ctx._prevScreen) {
       ctx.navigate(ctx._prevScreen);
     } else {
@@ -139,7 +135,6 @@ export function mountProfileScreen(root, ctx) {
     }
   });
 
-  // Load profile
   let profileData = null;
   let comments = [];
 
@@ -150,7 +145,8 @@ export function mountProfileScreen(root, ctx) {
       if (statusEl) statusEl.textContent = "";
       if (contentEl) contentEl.style.display = "";
     } catch (e) {
-      if (statusEl) statusEl.textContent = e.message || "Could not load profile.";
+      if (statusEl)
+        statusEl.textContent = e.message || "Could not load profile.";
     }
   }
 
@@ -193,7 +189,6 @@ export function mountProfileScreen(root, ctx) {
         ? `<p class="profile-bio-text">${escapeHtml(p.bio)}</p>`
         : "";
 
-    // Rank icon under the username — only show if ranked
     const profileRankHtml = p.rank
       ? `<div class="profile-rank-icon">${rankBadgeHtml(p.rank)}</div>`
       : "";
@@ -226,7 +221,6 @@ export function mountProfileScreen(root, ctx) {
       </div>
     `;
 
-    // Bio save handler
     if (isOwn) {
       const bioInput = cardEl.querySelector("#profile-bio-input");
       const bioSave = cardEl.querySelector("#profile-bio-save");
@@ -263,16 +257,15 @@ export function mountProfileScreen(root, ctx) {
       commentsList.innerHTML = `<p class="arcade-hint">No comments yet.</p>`;
       return;
     }
-    const isDev =
-      loggedIn && ["psyalysis", "polystalgia"].includes(myUsername);
+    const isDev = loggedIn && ["psyalysis", "polystalgia"].includes(myUsername);
     commentsList.innerHTML = comments
       .map((c) => {
-        const canDelete = (loggedIn && c.author_username === myUsername) || isDev;
+        const canDelete =
+          (loggedIn && c.author_username === myUsername) || isDev;
         return _commentHtml(c, canDelete);
       })
       .join("");
 
-    // Delete handlers
     commentsList.querySelectorAll(".profile-comment-delete").forEach((btn) => {
       btn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
@@ -291,7 +284,6 @@ export function mountProfileScreen(root, ctx) {
       });
     });
 
-    // Clickable author names → navigate to their profile
     commentsList.querySelectorAll(".profile-comment-author").forEach((el) => {
       el.style.cursor = "pointer";
       el.addEventListener("click", () => {
@@ -313,7 +305,6 @@ export function mountProfileScreen(root, ctx) {
     });
   }
 
-  // Comment input
   if (commentInput && commentSubmit && commentChars) {
     commentInput.addEventListener("input", () => {
       const len = commentInput.value.trim().length;
@@ -343,11 +334,9 @@ export function mountProfileScreen(root, ctx) {
     });
   }
 
-  // Load data
   loadProfile();
   loadComments();
 
-  // Handle browser back/forward between profiles
   const onPopState = (ev) => {
     const state = ev.state;
     if (state && state.profile) {

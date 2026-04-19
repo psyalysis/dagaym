@@ -1,6 +1,4 @@
-"""
- Cache whether the games are paused every five seconds.
-"""
+"""Cached ``pause_new_matches`` flag — hits DB at most once every 5s."""
 
 from __future__ import annotations
 
@@ -17,7 +15,7 @@ _cached_value = False
 
 
 def pause_new_matches_cached() -> bool:
-    """Return whether new MP matches are paused; refresh from DB at most every 5 seconds."""
+    """True while new MP matches are paused (TTL-backed cache)."""
     global _cached_at, _cached_value
     now = time.monotonic()
     with _lock:

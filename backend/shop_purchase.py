@@ -23,12 +23,7 @@ def purchase_profile_icon(db: Session, user_id: int, icon_key: str) -> tuple[int
 
     price = price_for_icon(icon_key)
 
-    locked = (
-        db.query(User)
-        .filter(User.id == user_id)
-        .with_for_update()
-        .one_or_none()
-    )
+    locked = db.query(User).filter(User.id == user_id).with_for_update().one_or_none()
     if locked is None:
         raise HTTPException(status_code=401, detail="User not found.")
 

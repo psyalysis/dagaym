@@ -135,9 +135,7 @@ def head_staging_object(lobby_id: str, player_id: str, upload_id: str) -> dict[s
     return client.head_object(Bucket=bucket, Key=key)
 
 
-def copy_staging_to_final(
-    lobby_id: str, player_id: str, upload_id: str, content_type: str
-) -> None:
+def copy_staging_to_final(lobby_id: str, player_id: str, upload_id: str, content_type: str) -> None:
     """Stub worker: same bytes at a correctly typed final key so browser playback works."""
     bucket = os.environ["R2_BUCKET_NAME"].strip()
     src = staging_key(lobby_id, player_id, upload_id)
@@ -157,11 +155,7 @@ def resolve_final_key(lobby_id: str, player_id: str) -> str | None:
     prefix = final_prefix(lobby_id, player_id)
     client = _s3()
     page = client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=10)
-    keys = [
-        obj.get("Key")
-        for obj in page.get("Contents") or ()
-        if isinstance(obj.get("Key"), str)
-    ]
+    keys = [obj.get("Key") for obj in page.get("Contents") or () if isinstance(obj.get("Key"), str)]
     if not keys:
         return None
     preferred = (
@@ -220,9 +214,7 @@ def r2_delete_lobby_objects(lobby_id: str) -> None:
     client = _s3()
     keys: list[str] = []
     try:
-        for page in client.get_paginator("list_objects_v2").paginate(
-            Bucket=bucket, Prefix=prefix
-        ):
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents") or ():
                 k = obj.get("Key")
                 if isinstance(k, str):

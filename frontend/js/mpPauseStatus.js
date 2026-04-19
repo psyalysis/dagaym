@@ -1,6 +1,4 @@
-/**
- * Server flag: no new MP matches (matches pause_matches_cache TTL on backend).
- */
+/** Backend can pause matchmaking; cache TTL there is 5s — we just ask `/api/mp-pause-status`. */
 
 export const MP_PAUSE_MESSAGE =
   "Server is restarting. Waiting for matches to finish.";

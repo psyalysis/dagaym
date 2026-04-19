@@ -204,9 +204,9 @@ export function mountSoloScreen(root, ctx) {
     input.addEventListener("change", () => {
       playSfxOn();
       kitGenre = normalizeKitGenre(
-        root.querySelector('input[name="solo-genre"]:checked')?.getAttribute(
-          "value",
-        ),
+        root
+          .querySelector('input[name="solo-genre"]:checked')
+          ?.getAttribute("value"),
       );
       ctx.kitGenre = kitGenre;
       syncSoloSpiceFieldVisibility(true);

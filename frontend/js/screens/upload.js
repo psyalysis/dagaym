@@ -168,7 +168,8 @@ export function mountUploadScreen(root, ctx) {
   const form = root.querySelector("#upload-form");
   const statusEl = root.querySelector("#upload-status");
   const uploadHintEl = root.querySelector(".screen.upload > .arcade-hint");
-  if (uploadHintEl) uploadHintEl.textContent = "MP3 or OGG — max 30MB — up to 45s";
+  if (uploadHintEl)
+    uploadHintEl.textContent = "MP3 or OGG — max 30MB — up to 45s";
   const uploadTotalSec = UPLOAD_WINDOW_SEC;
 
   /** @type {ReturnType<typeof normalizeLobbyLike>} */
@@ -209,9 +210,7 @@ export function mountUploadScreen(root, ctx) {
 
   void (async () => {
     try {
-      const capRes = await fetch(
-        `${ctx.apiBase}/api/upload/capabilities`,
-      );
+      const capRes = await fetch(`${ctx.apiBase}/api/upload/capabilities`);
       if (capRes.ok) {
         const cap = await capRes.json();
         useR2Direct = Boolean(cap.r2_direct);

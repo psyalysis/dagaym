@@ -65,9 +65,9 @@ async def multiplayer_ws(websocket: WebSocket) -> None:
     user_id, username = auth
     manager = get_manager(websocket)
 
-    resume_raw = websocket.query_params.get(
-        "resume_player_id"
-    ) or websocket.query_params.get("resumePlayerId")
+    resume_raw = websocket.query_params.get("resume_player_id") or websocket.query_params.get(
+        "resumePlayerId"
+    )
     resume_id = str(resume_raw).strip() if resume_raw else ""
 
     player_id: str | None = None

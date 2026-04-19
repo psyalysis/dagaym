@@ -24,9 +24,7 @@ from .models import User
 from .schemas import LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
 
 # Insecure default for local dev only — set COOKUP_JWT_SECRET in production.
-SECRET_KEY = os.environ.get(
-    "COOKUP_JWT_SECRET", "dev-insecure-change-me-cookup-jwt-secret"
-)
+SECRET_KEY = os.environ.get("COOKUP_JWT_SECRET", "dev-insecure-change-me-cookup-jwt-secret")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 _WS_TICKET_TTL_S = 30
@@ -64,9 +62,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(_password_key_bytes(password), bcrypt.gensalt()).decode(
-        "ascii"
-    )
+    return bcrypt.hashpw(_password_key_bytes(password), bcrypt.gensalt()).decode("ascii")
 
 
 def create_access_token(*, user_id: int, username: str) -> str:
@@ -84,11 +80,7 @@ def decode_token(token: str) -> dict:
 
 
 def register_user(db: Session, body: RegisterRequest) -> RegisterResponse:
-    existing = (
-        db.query(User)
-        .filter(func.lower(User.username) == body.username.lower())
-        .first()
-    )
+    existing = db.query(User).filter(func.lower(User.username) == body.username.lower()).first()
     if existing:
         raise HTTPException(status_code=400, detail="Username already taken.")
     user = User(
@@ -102,11 +94,7 @@ def register_user(db: Session, body: RegisterRequest) -> RegisterResponse:
 
 
 def login_user(db: Session, body: LoginRequest) -> TokenResponse:
-    user = (
-        db.query(User)
-        .filter(func.lower(User.username) == body.username.lower())
-        .first()
-    )
+    user = db.query(User).filter(func.lower(User.username) == body.username.lower()).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password.")
     token = create_access_token(user_id=user.id, username=user.username)

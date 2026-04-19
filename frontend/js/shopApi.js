@@ -11,10 +11,7 @@ export async function fetchShopCatalog() {
   return res.json();
 }
 
-/**
- * Requires login. Returns 403 until server sets COOKUP_SHOP_PURCHASES_ENABLED.
- * After success, call fetchMe() (or reload auth UI) so beatbucks balance stays in sync.
- */
+/** Needs auth. 403 until `COOKUP_SHOP_PURCHASES_ENABLED`. Then `fetchMe()` so Beatbucks UI matches. */
 export async function purchaseProfileIcon(iconKey) {
   const base = getApiBase();
   const res = await fetch(`${base}/api/me/shop/purchase`, {

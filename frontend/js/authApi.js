@@ -85,7 +85,9 @@ export async function registerUser(username, password) {
       const d = detail[0];
       const field = d.loc?.[d.loc.length - 1];
       const label = field ? field.charAt(0).toUpperCase() + field.slice(1) : "";
-      errMsg = label ? `${label} ${d.msg?.replace(/^String /i, "")}` : (d.msg || errMsg);
+      errMsg = label
+        ? `${label} ${d.msg?.replace(/^String /i, "")}`
+        : d.msg || errMsg;
     }
     throw new Error(errMsg);
   }

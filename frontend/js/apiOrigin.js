@@ -98,13 +98,15 @@ export function getWsUrl(opts = {}) {
   const resume = String(opts.resumePlayerId || "").trim();
 
   // Prefer short-lived ticket over long-lived JWT
-  const tokenValue = opts.ticket || (() => {
-    try {
-      return localStorage.getItem(WS_TOKEN_KEY)?.trim() || "";
-    } catch {
-      return "";
-    }
-  })();
+  const tokenValue =
+    opts.ticket ||
+    (() => {
+      try {
+        return localStorage.getItem(WS_TOKEN_KEY)?.trim() || "";
+      } catch {
+        return "";
+      }
+    })();
 
   if (tokenValue) {
     let q = `token=${encodeURIComponent(tokenValue)}`;
@@ -124,4 +126,3 @@ export async function getWsUrlWithTicket(opts = {}) {
   const ticket = await fetchWsTicket();
   return getWsUrl({ ...opts, ticket: ticket || undefined });
 }
-

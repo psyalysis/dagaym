@@ -7,7 +7,7 @@ import re
 MP_CHAT_MAX_LEN = 300
 MP_CHAT_COOLDOWN_S = 3.0
 
-# Printable ASCII only (single-line); no tabs or newlines (Edit: Or russian chars cus we're spreading to russia too).
+# ASCII chat only for now (URLs stripped separately).
 _ASCII_PRINTABLE = re.compile(r"^[\x20-\x7e]*$")
 
 _URL_SCHEMES = re.compile(r"(?:https?|ftp)://", re.I)
@@ -21,22 +21,15 @@ _HOST_TLD = re.compile(
 
 
 def normalize_and_validate_mp_chat_text(raw: object) -> tuple[str | None, str | None]:
-    """
-    Return ``(text, None)`` if valid, or ``(None, error_message) if not valid :)``.
-    ``raw`` is coerced with ``str()`` then stripped once.
-    """
+    """``(text, None)`` on success, else ``(None, reason)``. ``raw`` → ``str``, strip once."""
     if raw is None:
         return None, "Empty message."
     text = str(raw).strip()
     if not text:
         return None, "Empty message."
-    if (
-        len(text) > MP_CHAT_MAX_LEN
-    ):  # If the message length is greater than 300 chars - Should be more than fine for now
+    if len(text) > MP_CHAT_MAX_LEN:
         return None, "Message too long."
-    if not _ASCII_PRINTABLE.fullmatch(
-        text
-    ):  # If the message still contains non ascii even after being sanitized
+    if not _ASCII_PRINTABLE.fullmatch(text):
         return None, "Only ASCII characters allowed."
     if _URL_SCHEMES.search(text) or _WWW.search(text) or _HOST_TLD.search(text):
         return None, "URLs are not allowed."

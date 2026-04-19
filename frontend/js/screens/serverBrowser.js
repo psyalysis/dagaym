@@ -76,7 +76,9 @@ export function mountServerBrowserScreen(root, ctx) {
         throw new Error(`${res.status} ${await res.text()} (${base})`);
       const rawRows = await res.json();
       const rows = Array.isArray(rawRows)
-        ? rawRows.filter((r) => rowIsJoinable(/** @type {Record<string, unknown>} */ (r)))
+        ? rawRows.filter((r) =>
+            rowIsJoinable(/** @type {Record<string, unknown>} */ (r)),
+          )
         : [];
       if (rows.length === 0) {
         if (tableEl) {
@@ -114,7 +116,9 @@ export function mountServerBrowserScreen(root, ctx) {
           const ok = await fetchPublicLobbyJoinable(lid);
           el.removeAttribute("disabled");
           if (!ok) {
-            if (statusEl) statusEl.textContent = "That lobby is gone or already started — refreshing";
+            if (statusEl)
+              statusEl.textContent =
+                "That lobby is gone or already started — refreshing";
             showAppError({
               message:
                 "That lobby is no longer open. The list will refresh — try another or wait for a new game.",

@@ -98,11 +98,7 @@ export function transitionPanelHeight(panel, updateDom) {
   updateDom();
   void panel.offsetHeight;
 
-  /**
-   * scrollHeight can equal clientHeight when content shrinks below the locked
-   * height (no overflow), so the target height was wrong and clearing inline
-   * height at the end snapped. Measure natural height via height:auto instead.
-   */
+  // Shrinking content: locked height makes scrollHeight lie — measure at height:auto first.
   panel.style.height = "auto";
   const end = panel.getBoundingClientRect().height;
   panel.style.height = `${start}px`;
@@ -121,6 +117,7 @@ export function transitionPanelHeight(panel, updateDom) {
 export function queryPrimaryArcadePanel(root) {
   if (!(root instanceof HTMLElement)) return null;
   return (
-    root.querySelector(".screen.arcade-panel") ?? root.querySelector(".arcade-panel")
+    root.querySelector(".screen.arcade-panel") ??
+    root.querySelector(".arcade-panel")
   );
 }

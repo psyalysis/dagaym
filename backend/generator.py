@@ -536,10 +536,7 @@ def generate_kit(
         for swap_idx, source_path in enumerate(synth_sources[:max_source_swaps]):
             for k in range(MAX_GENERATION_ATTEMPTS):
                 sub = np.random.default_rng(
-                    int(rng.integers(0, 2**31))
-                    + offset * 9973
-                    + swap_idx * 17011
-                    + k * 131071
+                    int(rng.integers(0, 2**31)) + offset * 9973 + swap_idx * 17011 + k * 131071
                 )
                 y, sr = load_audio_file(source_path)
                 assert sr == SAMPLE_RATE

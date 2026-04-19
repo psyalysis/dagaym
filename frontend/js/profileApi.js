@@ -1,13 +1,17 @@
-/**
- * Profile API — fetch wrappers for the profile system.
- */
+/** `/api/profile/*` helpers */
 import { getApiBase } from "./apiOrigin.js";
 import { apiFetch } from "./apiFetch.js";
-import { authHeaders, authBearerOnly, authHeadersMultipart } from "./authApi.js";
+import {
+  authHeaders,
+  authBearerOnly,
+  authHeadersMultipart,
+} from "./authApi.js";
 
 export async function fetchProfile(username) {
   const base = getApiBase();
-  const res = await apiFetch(`${base}/api/profile/${encodeURIComponent(username)}`);
+  const res = await apiFetch(
+    `${base}/api/profile/${encodeURIComponent(username)}`,
+  );
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));
     throw new Error(d.detail || res.statusText || "Profile not found");

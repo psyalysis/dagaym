@@ -43,7 +43,13 @@ from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .auth import create_ws_ticket, get_current_user, invalidate_user_cache, login_user, register_user
+from .auth import (
+    create_ws_ticket,
+    get_current_user,
+    invalidate_user_cache,
+    login_user,
+    register_user,
+)
 from . import beats_r2
 from .http_rate_limit import IPRateLimitMiddleware
 from . import avatar_r2
@@ -141,9 +147,9 @@ def _resolve_dataset_media_file(rel: str) -> Path | None:
 
     alts = [rel]
     if rel.startswith("trap/synths"):
-        alts.append(f"TrapRefined/{rel[len('trap/'):]}")
+        alts.append(f"TrapRefined/{rel[len('trap/') :]}")
     elif rel.startswith("TrapRefined/synths"):
-        alts.append(f"trap/{rel[len('TrapRefined/'):]}")
+        alts.append(f"trap/{rel[len('TrapRefined/') :]}")
     if rel == "TrapRefined" or rel.startswith("TrapRefined/"):
         alts.append(f"beat-battle-assets/{rel}")
     if rel == "EDM" or rel.startswith("EDM/"):
@@ -179,9 +185,7 @@ def _index_html_response() -> HTMLResponse:
     path = FRONTEND_ROOT / "index.html"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="index.html not found.")
-    body = path.read_text(encoding="utf-8").replace(
-        "__STATIC_BUILD__", STATIC_ASSET_BUILD
-    )
+    body = path.read_text(encoding="utf-8").replace("__STATIC_BUILD__", STATIC_ASSET_BUILD)
     return HTMLResponse(content=body, headers={"Cache-Control": "no-cache"})
 
 
@@ -192,12 +196,8 @@ _ALLOWED_DEV_STATS_USERS = frozenset({"psyalysis", "polystalgia"})
 
 _COMMENT_LIMIT = SlidingWindowRateLimiter(max_events=3, window_s=30.0)
 _SHOP_PURCHASE_LIMIT = SlidingWindowRateLimiter(max_events=20, window_s=60.0)
-_UPLOAD_TRANSCODE_MAX_CONCURRENCY = _env_int(
-    "COOKUP_UPLOAD_TRANSCODE_CONCURRENCY", 1, minimum=1
-)
-_UPLOAD_TRANSCODE_WAIT_S = _env_float(
-    "COOKUP_UPLOAD_TRANSCODE_WAIT_S", 15.0, minimum=1.0
-)
+_UPLOAD_TRANSCODE_MAX_CONCURRENCY = _env_int("COOKUP_UPLOAD_TRANSCODE_CONCURRENCY", 1, minimum=1)
+_UPLOAD_TRANSCODE_WAIT_S = _env_float("COOKUP_UPLOAD_TRANSCODE_WAIT_S", 15.0, minimum=1.0)
 
 
 def _shop_purchases_enabled() -> bool:
@@ -214,6 +214,7 @@ def get_optional_user(
         return None
     try:
         from .auth import decode_token, get_user_by_id
+
         payload = decode_token(creds.credentials)
         if payload.get("typ") == "ws_ticket":
             return None
@@ -291,9 +292,7 @@ async def lifespan(app: FastAPI):
     UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
     manager = LobbyManager(UPLOADS_ROOT)
     app.state.manager = manager
-    app.state.upload_transcode_sem = asyncio.Semaphore(
-        _UPLOAD_TRANSCODE_MAX_CONCURRENCY
-    )
+    app.state.upload_transcode_sem = asyncio.Semaphore(_UPLOAD_TRANSCODE_MAX_CONCURRENCY)
     db = next(get_db())
     try:
         _visit_total_known = _get_total_visits(db)
@@ -363,9 +362,7 @@ def _static_cache_control(path: str) -> str | None:
         return "public, max-age=0, must-revalidate"
     if path.startswith("/sfx/") or path.startswith("/media/"):
         return "public, max-age=86400"
-    if path.endswith(
-        (".css", ".woff2", ".svg", ".png", ".ico", ".webp", ".mp3", ".ogg")
-    ):
+    if path.endswith((".css", ".woff2", ".svg", ".png", ".ico", ".webp", ".mp3", ".ogg")):
         return "public, max-age=86400"
     if path == "/" or path.endswith(".html"):
         return "no-cache"
@@ -623,9 +620,13 @@ def delete_dev_supporter(
 def post_register(
     request: Request, body: RegisterRequest, db: Session = Depends(get_db)
 ) -> RegisterResponse:
-    ip = (request.client.host if request.client else "unknown")
+    ip = request.client.host if request.client else "unknown"
     if not _REGISTER_LIMIT.check(f"reg:{ip}"):
-        raise HTTPException(status_code=429, detail="Too many registrations. Try again later.", headers={"Retry-After": "10"})
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registrations. Try again later.",
+            headers={"Retry-After": "10"},
+        )
     return register_user(db, body)
 
 
@@ -633,9 +634,13 @@ def post_register(
 def post_login(
     request: Request, body: LoginRequest, db: Session = Depends(get_db)
 ) -> TokenResponse:
-    ip = (request.client.host if request.client else "unknown")
+    ip = request.client.host if request.client else "unknown"
     if not _LOGIN_LIMIT.check(f"login:{ip}"):
-        raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.", headers={"Retry-After": "5"})
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Try again later.",
+            headers={"Retry-After": "5"},
+        )
     return login_user(db, body)
 
 
@@ -651,9 +656,7 @@ def post_ws_ticket(user: User = Depends(get_current_user)) -> dict[str, str]:
     return {"ticket": ticket}
 
 
-def _me_response_from_user(
-    user: User, owned_profile_icon_keys: list[str]
-) -> MeResponse:
+def _me_response_from_user(user: User, owned_profile_icon_keys: list[str]) -> MeResponse:
     r = rank_for_wins(user.wins)
     rank = (
         RankInfo(key=r["key"], abbrev=r["abbrev"], label=r["label"], color=r["color"])
@@ -672,9 +675,7 @@ def _me_response_from_user(
 
 
 @app.get("/me", response_model=MeResponse)
-def get_me(
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
-) -> MeResponse:
+def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> MeResponse:
     owned_rows = (
         db.query(UserProfileIconOwnership.icon_key)
         .filter(UserProfileIconOwnership.user_id == user.id)
@@ -698,9 +699,7 @@ def post_shop_purchase(
     db: Session = Depends(get_db),
 ) -> ShopPurchaseResponse:
     if not _shop_purchases_enabled():
-        raise HTTPException(
-            status_code=403, detail="Shop purchases are not available yet."
-        )
+        raise HTTPException(status_code=403, detail="Shop purchases are not available yet.")
     ip = request.client.host if request.client else "unknown"
     if not _SHOP_PURCHASE_LIMIT.check(f"shop:{user.id}:{ip}"):
         raise HTTPException(
@@ -815,9 +814,7 @@ async def list_public_lobbies(request: Request) -> ORJSONResponse:
 
 
 @app.get("/api/lobbies/joinable/{lobby_id}")
-async def check_public_lobby_joinable(
-    lobby_id: str, request: Request
-) -> dict[str, Any]:
+async def check_public_lobby_joinable(lobby_id: str, request: Request) -> dict[str, Any]:
     """Preflight for server-browser join — same visibility as GET /api/lobbies (no extra leaks)."""
     raw = (lobby_id or "").strip()
     if len(raw) < 3 or len(raw) > 32:
@@ -944,24 +941,16 @@ async def beat_upload_complete(
         raise HTTPException(status_code=400, detail="Upload phase is not active.")
 
     try:
-        head = await asyncio.to_thread(
-            beats_r2.head_staging_object, lid, pid, upload_id
-        )
+        head = await asyncio.to_thread(beats_r2.head_staging_object, lid, pid, upload_id)
     except ClientError as e:
         code = (e.response.get("Error") or {}).get("Code", "")
         if code in ("404", "NoSuchKey", "NotFound"):
-            raise HTTPException(
-                status_code=400, detail="Staging object not found."
-            ) from e
-        raise HTTPException(
-            status_code=502, detail="R2 head_object failed."
-        ) from e
+            raise HTTPException(status_code=400, detail="Staging object not found.") from e
+        raise HTTPException(status_code=502, detail="R2 head_object failed.") from e
 
     cl = int(head.get("ContentLength") or 0)
     if cl != body.content_length:
-        raise HTTPException(
-            status_code=400, detail="content_length does not match object."
-        )
+        raise HTTPException(status_code=400, detail="content_length does not match object.")
     if cl > beats_r2.MAX_BEAT_BYTES or cl < 1:
         raise HTTPException(status_code=400, detail="Invalid object size.")
 
@@ -987,9 +976,7 @@ async def beat_upload_complete(
         else:
             ready = False
     except ClientError as e:
-        raise HTTPException(
-            status_code=502, detail="R2 copy to final failed."
-        ) from e
+        raise HTTPException(status_code=502, detail="R2 copy to final failed.") from e
 
     manager.r2_beat_register_complete(
         lid,
@@ -1000,9 +987,7 @@ async def beat_upload_complete(
         sha256=body.sha256,
         ready=ready,
     )
-    return BeatUploadCompleteResponse(
-        ok=True, ready=ready, idempotent=False, accepted=True
-    )
+    return BeatUploadCompleteResponse(ok=True, ready=ready, idempotent=False, accepted=True)
 
 
 def _sniff_audio(buf: bytes) -> str | None:
@@ -1066,9 +1051,7 @@ async def upload_beat(
                     first_chunk = chunk[:64]
                 total += len(chunk)
                 if total > MAX_BEAT_BYTES:
-                    raise HTTPException(
-                        status_code=400, detail="File too large (max 30MB)."
-                    )
+                    raise HTTPException(status_code=400, detail="File too large (max 30MB).")
                 out.write(chunk)
 
         if total == 0:
@@ -1076,9 +1059,7 @@ async def upload_beat(
 
         sniffed = _sniff_audio(first_chunk or b"")
         if sniffed and sniffed != suffix:
-            raise HTTPException(
-                status_code=400, detail="File content does not match extension."
-            )
+            raise HTTPException(status_code=400, detail="File content does not match extension.")
 
         acquired = False
         try:
@@ -1109,14 +1090,10 @@ async def upload_beat(
                     status_code=503,
                     detail="Beat uploads require ffmpeg (libvorbis) on the server.",
                 ) from e
-            raise HTTPException(
-                status_code=400, detail="Could not process audio file."
-            ) from e
+            raise HTTPException(status_code=400, detail="Could not process audio file.") from e
         except Exception as e:
             dest.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=400, detail="Could not process audio file."
-            ) from e
+            raise HTTPException(status_code=400, detail="Could not process audio file.") from e
         finally:
             if acquired:
                 upload_transcode_sem.release()
@@ -1155,14 +1132,8 @@ async def get_beat(
             mt = "audio/wav"
         return FileResponse(path, media_type=mt, filename=path.name)
     lobby = manager.lobbies.get(lobby_id)
-    if (
-        beats_r2.r2_capabilities()["r2_direct"]
-        and lobby is not None
-        and owner_id in lobby.uploaded
-    ):
-        final_url = await asyncio.to_thread(
-            beats_r2.public_final_url, lobby_id, owner_id
-        )
+    if beats_r2.r2_capabilities()["r2_direct"] and lobby is not None and owner_id in lobby.uploaded:
+        final_url = await asyncio.to_thread(beats_r2.public_final_url, lobby_id, owner_id)
         if not final_url:
             raise HTTPException(status_code=404, detail="Beat not found.")
         return RedirectResponse(
@@ -1180,15 +1151,15 @@ def get_profile(
     username: str,
     db: Session = Depends(get_db),
 ) -> ProfileResponse:
-    user = (
-        db.query(User)
-        .filter(func.lower(User.username) == username.strip().lower())
-        .first()
-    )
+    user = db.query(User).filter(func.lower(User.username) == username.strip().lower()).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     r = rank_for_wins(user.wins)
-    rank = RankInfo(key=r["key"], abbrev=r["abbrev"], label=r["label"], color=r["color"]) if r else None
+    rank = (
+        RankInfo(key=r["key"], abbrev=r["abbrev"], label=r["label"], color=r["color"])
+        if r
+        else None
+    )
     comment_count = db.query(ProfileComment).filter(ProfileComment.profile_id == user.id).count()
     return ProfileResponse(
         username=user.username,
@@ -1212,11 +1183,7 @@ def get_profile_comments(
     page: int = Query(1, ge=1),
     db: Session = Depends(get_db),
 ) -> list[ProfileCommentOut]:
-    user = (
-        db.query(User)
-        .filter(func.lower(User.username) == username.strip().lower())
-        .first()
-    )
+    user = db.query(User).filter(func.lower(User.username) == username.strip().lower()).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     per_page = 50
@@ -1234,15 +1201,21 @@ def get_profile_comments(
         if not author:
             continue
         ar = rank_for_wins(author.wins)
-        a_rank = RankInfo(key=ar["key"], abbrev=ar["abbrev"], label=ar["label"], color=ar["color"]) if ar else None
-        out.append(ProfileCommentOut(
-            id=c.id,
-            author_username=author.username,
-            author_rank=a_rank,
-            author_avatar_url=author.avatar_url,
-            content=c.content,
-            created_at=c.created_at.isoformat() + "Z",
-        ))
+        a_rank = (
+            RankInfo(key=ar["key"], abbrev=ar["abbrev"], label=ar["label"], color=ar["color"])
+            if ar
+            else None
+        )
+        out.append(
+            ProfileCommentOut(
+                id=c.id,
+                author_username=author.username,
+                author_rank=a_rank,
+                author_avatar_url=author.avatar_url,
+                content=c.content,
+                created_at=c.created_at.isoformat() + "Z",
+            )
+        )
     return out
 
 
@@ -1256,12 +1229,12 @@ def post_profile_comment(
 ) -> ProfileCommentOut:
     ip = request.client.host if request.client else "unknown"
     if not _COMMENT_LIMIT.check(f"comment:{user.id}:{ip}"):
-        raise HTTPException(status_code=429, detail="Too many comments. Try again later.", headers={"Retry-After": "10"})
-    target = (
-        db.query(User)
-        .filter(func.lower(User.username) == username.strip().lower())
-        .first()
-    )
+        raise HTTPException(
+            status_code=429,
+            detail="Too many comments. Try again later.",
+            headers={"Retry-After": "10"},
+        )
+    target = db.query(User).filter(func.lower(User.username) == username.strip().lower()).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found.")
     comment = ProfileComment(
@@ -1273,7 +1246,11 @@ def post_profile_comment(
     db.commit()
     db.refresh(comment)
     ar = rank_for_wins(user.wins)
-    a_rank = RankInfo(key=ar["key"], abbrev=ar["abbrev"], label=ar["label"], color=ar["color"]) if ar else None
+    a_rank = (
+        RankInfo(key=ar["key"], abbrev=ar["abbrev"], label=ar["label"], color=ar["color"])
+        if ar
+        else None
+    )
     return ProfileCommentOut(
         id=comment.id,
         author_username=user.username,
@@ -1321,7 +1298,9 @@ async def upload_avatar(
 ) -> dict[str, Any]:
     ct = (file.content_type or "").strip().lower()
     if ct not in avatar_r2.ALLOWED_AVATAR_CONTENT_TYPES:
-        raise HTTPException(status_code=400, detail="Only PNG, JPEG, WebP, or GIF images are allowed.")
+        raise HTTPException(
+            status_code=400, detail="Only PNG, JPEG, WebP, or GIF images are allowed."
+        )
 
     data = await file.read()
     if len(data) > avatar_r2.MAX_AVATAR_BYTES:
@@ -1353,6 +1332,7 @@ if _DATASET_ROOT.is_dir():
         if path is None:
             raise HTTPException(404)
         return FileResponse(path)
+
 
 if FRONTEND_ROOT.is_dir():
 

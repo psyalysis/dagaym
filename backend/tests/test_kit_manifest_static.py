@@ -34,9 +34,7 @@ def clear_manifest_cache():
     km.get_kit_manifest_edm_cached.cache_clear()
 
 
-def test_kit_manifest_path_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_kit_manifest_path_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "kit-manifest.json"
     path.write_text(
         json.dumps(
@@ -74,9 +72,7 @@ def test_kit_manifest_invalid_json_falls_back(
     assert isinstance(data["keys"], dict)
 
 
-def test_kit_manifest_edm_path_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_kit_manifest_edm_path_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "kit-manifest-edm.json"
     path.write_text(
         json.dumps(
@@ -97,9 +93,7 @@ def test_kit_manifest_edm_path_override(
     assert data["keys"]["Snares"] == ["edm/Snares/s.ogg"]
 
 
-def test_edm_disk_scan_emits_logical_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_edm_disk_scan_emits_logical_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     edm_root = tmp_path / "EDM"
     (edm_root / "ImpactsRisers").mkdir(parents=True)
     (edm_root / "ImpactsRisers" / "f.ogg").write_bytes(b"\x00")

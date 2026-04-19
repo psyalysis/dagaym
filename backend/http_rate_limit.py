@@ -17,9 +17,9 @@ import time
 from typing import Any
 
 # Defaults tuned so a single user refreshing every ~1s is fine, but 30+ req/s triggers 429.
-_DEFAULT_RATE = 30          # requests per window
-_DEFAULT_WINDOW_S = 10.0    # sliding window
-_GC_INTERVAL_S = 60.0       # how often we purge cold IPs
+_DEFAULT_RATE = 30  # requests per window
+_DEFAULT_WINDOW_S = 10.0  # sliding window
+_GC_INTERVAL_S = 60.0  # how often we purge cold IPs
 
 
 class _Bucket:
@@ -136,16 +136,20 @@ class IPRateLimitMiddleware:
 
         # 429 Too Many Requests
         body = b'{"detail":"Too many requests. Please slow down."}'
-        await send({
-            "type": "http.response.start",
-            "status": 429,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"retry-after", str(retry_after).encode("ascii")),
-                (b"cache-control", b"no-store"),
-            ],
-        })
-        await send({
-            "type": "http.response.body",
-            "body": body,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"retry-after", str(retry_after).encode("ascii")),
+                    (b"cache-control", b"no-store"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body,
+            }
+        )

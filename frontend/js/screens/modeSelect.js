@@ -9,10 +9,7 @@ import {
   fetchMpReconnectPending,
   shouldShowReconnectOverlay,
 } from "../mpReconnectPending.js";
-import {
-  fetchMpPauseStatus,
-  MP_PAUSE_MESSAGE,
-} from "../mpPauseStatus.js";
+import { fetchMpPauseStatus, MP_PAUSE_MESSAGE } from "../mpPauseStatus.js";
 import {
   hasSeenRankUp,
   RANK_PENDING_KEY,
@@ -180,36 +177,30 @@ export function mountModeSelectScreen(root, ctx) {
   const leadSpacer = root.querySelector("#mode-select-lead-spacer");
 
   const showModeChoice = () => {
-    transitionPanelHeight(
-      panel instanceof HTMLElement ? panel : null,
-      () => {
-        if (stepHome) stepHome.hidden = true;
-        if (stepModes) stepModes.hidden = false;
-        if (tagline) {
-          tagline.classList.remove("mode-select-tagline--concealed");
-          tagline.setAttribute("aria-hidden", "false");
-        }
-        if (backBtn) backBtn.hidden = false;
-        if (leadSpacer) leadSpacer.hidden = true;
-      },
-    );
+    transitionPanelHeight(panel instanceof HTMLElement ? panel : null, () => {
+      if (stepHome) stepHome.hidden = true;
+      if (stepModes) stepModes.hidden = false;
+      if (tagline) {
+        tagline.classList.remove("mode-select-tagline--concealed");
+        tagline.setAttribute("aria-hidden", "false");
+      }
+      if (backBtn) backBtn.hidden = false;
+      if (leadSpacer) leadSpacer.hidden = true;
+    });
   };
 
   const showHomeLanding = () => {
-    transitionPanelHeight(
-      panel instanceof HTMLElement ? panel : null,
-      () => {
-        if (stepHome) stepHome.hidden = false;
-        if (stepModes) stepModes.hidden = true;
-        if (tagline) {
-          tagline.classList.add("mode-select-tagline--concealed");
-          tagline.setAttribute("aria-hidden", "true");
-        }
-        if (backBtn) backBtn.hidden = true;
-        if (leadSpacer) leadSpacer.hidden = false;
-        if (lockHint) lockHint.hidden = true;
-      },
-    );
+    transitionPanelHeight(panel instanceof HTMLElement ? panel : null, () => {
+      if (stepHome) stepHome.hidden = false;
+      if (stepModes) stepModes.hidden = true;
+      if (tagline) {
+        tagline.classList.add("mode-select-tagline--concealed");
+        tagline.setAttribute("aria-hidden", "true");
+      }
+      if (backBtn) backBtn.hidden = true;
+      if (leadSpacer) leadSpacer.hidden = false;
+      if (lockHint) lockHint.hidden = true;
+    });
   };
 
   playBtn?.addEventListener("click", () => {
@@ -233,9 +224,7 @@ export function mountModeSelectScreen(root, ctx) {
 
   shopBtn?.addEventListener("click", () => {
     playSfxMinor();
-    import("./shopScreen.js").then((m) =>
-      ctx.navigate(m.mountShopScreen),
-    );
+    import("./shopScreen.js").then((m) => ctx.navigate(m.mountShopScreen));
   });
 
   solo?.addEventListener("click", () => {

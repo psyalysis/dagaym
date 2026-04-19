@@ -14,12 +14,14 @@ from typing import Any
 from .beats_r2 import _r2_config_errors, _s3, r2_capabilities
 
 
-ALLOWED_AVATAR_CONTENT_TYPES = frozenset({
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/gif",
-})
+ALLOWED_AVATAR_CONTENT_TYPES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+    }
+)
 MAX_AVATAR_BYTES = 2 * 1024 * 1024  # 2 MB
 
 
@@ -61,7 +63,7 @@ def delete_avatar_from_r2(avatar_url: str) -> None:
     base = os.environ.get("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
     if not base or not avatar_url.startswith(base):
         return
-    key = avatar_url[len(base) + 1:]  # strip base + leading /
+    key = avatar_url[len(base) + 1 :]  # strip base + leading /
     bucket = os.environ["R2_BUCKET_NAME"].strip()
     client = _s3()
     try:

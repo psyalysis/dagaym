@@ -62,8 +62,10 @@ export function mountRegisterScreen(root, ctx) {
       ctx.navigate(mountLoginScreen);
     } catch (e) {
       if (err) {
-        const msg = typeof e === "string" ? e
-          : e?.message || e?.detail || "Registration failed.";
+        const msg =
+          typeof e === "string"
+            ? e
+            : e?.message || e?.detail || "Registration failed.";
         err.textContent = typeof msg === "string" ? msg : String(msg);
       }
     }

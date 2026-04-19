@@ -104,11 +104,7 @@ def _normalize_one_trap_manifest_path(p: str) -> str:
         return p
     if p == "trap/synths" or p.startswith("trap/synths/"):
         tail = "" if p == "trap/synths" else p[len("trap/synths/") :]
-        return (
-            f"{root}/synths/{tail}".replace("//", "/").rstrip("/")
-            if tail
-            else f"{root}/synths"
-        )
+        return f"{root}/synths/{tail}".replace("//", "/").rstrip("/") if tail else f"{root}/synths"
     return p
 
 
@@ -126,9 +122,7 @@ def _normalize_trap_refined_paths_in_keys(data: dict[str, Any]) -> None:
 
 def _normalize_one_edm_manifest_path(p: str) -> str:
     if p.startswith("beat-battle-assets/EDM/"):
-        return f"edm/{p[len('beat-battle-assets/EDM/') :]}".replace("//", "/").rstrip(
-            "/"
-        )
+        return f"edm/{p[len('beat-battle-assets/EDM/') :]}".replace("//", "/").rstrip("/")
     if p.startswith("EDM/") and not p.startswith("edm/"):
         return f"edm/{p[4:]}".replace("//", "/").rstrip("/")
     if p == "EDM":
@@ -162,9 +156,7 @@ def _validate_trap_manifest_payload(data: Any) -> dict[str, Any]:
     keys = data["keys"]
     for k in _LIGHT_KIT_KEYS:
         if k not in keys or not isinstance(keys[k], list):
-            raise ValueError(
-                f"Invalid kit manifest JSON: missing or non-array keys[{k!r}]"
-            )
+            raise ValueError(f"Invalid kit manifest JSON: missing or non-array keys[{k!r}]")
     return data
 
 
@@ -178,9 +170,7 @@ def _validate_edm_manifest_payload(data: Any) -> dict[str, Any]:
     keys = data["keys"]
     for k in KIT_EDM_KEYS:
         if k not in keys or not isinstance(keys[k], list):
-            raise ValueError(
-                f"Invalid EDM kit manifest JSON: missing or non-array keys[{k!r}]"
-            )
+            raise ValueError(f"Invalid EDM kit manifest JSON: missing or non-array keys[{k!r}]")
     return data
 
 

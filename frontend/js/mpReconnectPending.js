@@ -50,7 +50,10 @@ export async function fetchMpReconnectPending() {
       player_id,
       reconnect_until_ts: Number(data.reconnect_until_ts),
       seconds_remaining: Number(data.seconds_remaining) || 0,
-      grace_total_s: Number.isFinite(grace_total_s) && grace_total_s > 0 ? grace_total_s : 60,
+      grace_total_s:
+        Number.isFinite(grace_total_s) && grace_total_s > 0
+          ? grace_total_s
+          : 60,
     };
   } catch {
     return null;

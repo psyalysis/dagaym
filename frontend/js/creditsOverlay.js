@@ -19,40 +19,40 @@ const CREDITS = [
   {
     name: "psyalysis",
     contribution: "Original creator of the game!",
-    profileUsername: "psyalysis"
+    profileUsername: "psyalysis",
   },
   {
     name: "dracocaine",
     contribution: "Network and Connections | Community Strategist | Visionary",
-    profileUsername: "dracocaine"
+    profileUsername: "dracocaine",
   },
   {
     name: "lukasz",
-    contribution: "Discord Admin"
+    contribution: "Discord Admin",
   },
   {
     name: "inboredom",
     contribution: "UI Sound Design | Trimming Samples",
-    profileUsername: "inboredom"
+    profileUsername: "inboredom",
   },
   {
     name: "sarcasmo",
-    contribution: "Menu Pixel Icons"
+    contribution: "Menu Pixel Icons",
   },
   {
     name: "danny / danro (discord)",
     contribution: "Pixel Art Rank Icons",
-    profileUsername: "danro"
+    profileUsername: "danro",
   },
   {
     name: "sebben",
     contribution: "Tuning Samples",
-    profileUsername: "sebben"
+    profileUsername: "sebben",
   },
   {
     name: "prod.jawn",
     contribution: "Beat Buck Icon",
-    profileUsername: "prodjawn"
+    profileUsername: "prodjawn",
   },
 ];
 
@@ -114,7 +114,11 @@ export function openCreditsOverlay(navigate) {
         ev.stopPropagation();
         playSfxMinor();
         close();
-        history.pushState({ profile: slug }, "", `/@${encodeURIComponent(slug)}`);
+        history.pushState(
+          { profile: slug },
+          "",
+          `/@${encodeURIComponent(slug)}`,
+        );
         import("./screens/profileScreen.js").then((m) =>
           navigate(m.mountProfileScreen, {
             profileUsername: slug,

@@ -61,7 +61,9 @@ export function mountSpiceSelectScreen(root, ctx) {
     });
   });
   const lobbySpiceFieldset = root.querySelector("#lobby-spice-fieldset");
-  const spiceSelectPanel = root.querySelector(".screen.spice-select.arcade-panel");
+  const spiceSelectPanel = root.querySelector(
+    ".screen.spice-select.arcade-panel",
+  );
   const syncLobbySpiceFieldVisibility = (animated = false) => {
     const gen = root.querySelector('input[name="lobby-genre"]:checked');
     const isEdm = gen?.getAttribute("value") === "edm";

@@ -177,7 +177,11 @@ export function mountMatchmakingScreen(root, ctx) {
               return;
             }
             ws.send(
-              JSON.stringify({ type: "join_lobby", name, lobby_id: joinLobbyId }),
+              JSON.stringify({
+                type: "join_lobby",
+                name,
+                lobby_id: joinLobbyId,
+              }),
             );
           })();
         } else if (lobbyCode) {

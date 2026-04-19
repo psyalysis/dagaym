@@ -23,6 +23,7 @@ def normalize_lobby_genre(raw: Any) -> str:
         return s
     return DEFAULT_LOBBY_GENRE
 
+
 # Match spec: three spice cards map to these generation intensities.
 SPICE_MILD = 0.25
 SPICE_MEDIUM = 0.5

@@ -117,9 +117,7 @@ function getWaveSurfer() {
 
 function kitNeedsFetch(sounds, genre = "trap", seed, spice) {
   if (!sounds || typeof sounds !== "object") return true;
-  return !getKitSoundKeys(genre, seed, spice).every((k) =>
-    Boolean(sounds[k]),
-  );
+  return !getKitSoundKeys(genre, seed, spice).every((k) => Boolean(sounds[k]));
 }
 
 /**
@@ -213,8 +211,7 @@ function tryNavigatePastCookPhase(ctx, ws, meta) {
  * @param {Awaited<ReturnType<typeof fetchLobbyKitMeta>>} [prefetchedMeta]
  */
 async function buildKitClientSide(root, ctx, start, opts, prefetchedMeta) {
-  const meta =
-    prefetchedMeta ?? (await fetchLobbyKitMeta(ctx));
+  const meta = prefetchedMeta ?? (await fetchLobbyKitMeta(ctx));
   if (opts.getCancelled()) return;
   if (tryNavigatePastCookPhase(ctx, ctx.mpWs, meta)) return;
 
@@ -352,7 +349,7 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
   const lobbyId = ctx.lobbyId;
   const cookMin = Number(ctx.cookDurationMin) || 10;
   let remaining = cookMin * 60;
-  /** When cook ends (server nudges this via timer_update; we redraw every second). */
+  /** Wall clock when cook ends — timer_update keeps us honest */
   let cookEndAtMs = Date.now() + remaining * 1000;
   const initRs = phaseOpts?.initialCookRemainingS;
   if (initRs != null && Number.isFinite(initRs)) {
@@ -520,7 +517,9 @@ function setupCookUI(root, ctx, sounds, phaseOpts) {
       genre: normalizeKitGenre(ctx.kitGenre),
     });
 
-  const soundKeys = [...getKitSoundKeys(ctx.kitGenre, ctx.kitSeed, ctx.kitSpice)];
+  const soundKeys = [
+    ...getKitSoundKeys(ctx.kitGenre, ctx.kitSeed, ctx.kitSpice),
+  ];
   clickFullPlayback.clear();
   soundKeys.forEach((key) => {
     const b64 = sounds[key];
@@ -756,7 +755,7 @@ export function mountCookScreen(root, ctx) {
 
   let cancelled = false;
   let innerCleanup = () => {};
-  /** Seconds left while we're still fetching stems — timer_update hammers this in. */
+  /** Cook seconds left before stems arrive; WS sends lots of timer_update here */
   const pending = { lastCookRemainingS: /** @type {number | null} */ null };
   let bridgeActive = true;
   const unmountFlags = { teardownClose: false };
@@ -859,9 +858,7 @@ export function mountCookScreen(root, ctx) {
       ctx.kitSeed = meta.seed;
       ctx.kitSpice = meta.spice;
 
-      if (
-        kitNeedsFetch(ctx.sounds, ctx.kitGenre, ctx.kitSeed, ctx.kitSpice)
-      ) {
+      if (kitNeedsFetch(ctx.sounds, ctx.kitGenre, ctx.kitSeed, ctx.kitSpice)) {
         mountAuthCornerLeave(ctx);
         try {
           await buildKitClientSide(

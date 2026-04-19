@@ -69,13 +69,9 @@ def normalize_player_spices(data: dict[str, Any]) -> list[float] | None:
 
 
 # Wire format is string keys only — the UI maps these to actual emoji. Keeps payloads tiny :)
-MP_CHAT_EMOJI_KEYS: frozenset[str] = frozenset(
-    {"wave", "fire", "heart", "skull", "hundred"}
-)
+MP_CHAT_EMOJI_KEYS: frozenset[str] = frozenset({"wave", "fire", "heart", "skull", "hundred"})
 LOBBY_EMOJI_KEYS: frozenset[str] = MP_CHAT_EMOJI_KEYS
-BEAT_REACTION_KEYS: frozenset[str] = frozenset(
-    {"fire", "thumbs_up", "thumbs_down", "hundred"}
-)
+BEAT_REACTION_KEYS: frozenset[str] = frozenset({"fire", "thumbs_up", "thumbs_down", "hundred"})
 
 MP_CHAT_STATES: frozenset[LobbyState] = frozenset(
     {

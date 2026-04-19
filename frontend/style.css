@@ -3906,7 +3906,9 @@ button.auth-corner-card.auth-corner-menu-toggle {
   font-size: 0.65rem;
   padding: 0 0.2rem;
   opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease;
 }
 
 .profile-comment:hover .profile-comment-delete {

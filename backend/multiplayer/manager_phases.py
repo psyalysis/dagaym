@@ -77,16 +77,8 @@ async def cook_loop(manager: LobbyManager, lobby_id: str) -> None:
                 if not lobby or lobby.state != LobbyState.COOKING:
                     return
                 # Advance when everyone still connected has finished — don't block on soft-DC seats.
-                connected = {
-                    pid
-                    for pid in lobby.players
-                    if manager.player_ws.get(pid) is not None
-                }
-                if (
-                    len(lobby.players) > 0
-                    and connected
-                    and connected.issubset(lobby.cook_finished)
-                ):
+                connected = {pid for pid in lobby.players if manager.player_ws.get(pid) is not None}
+                if len(lobby.players) > 0 and connected and connected.issubset(lobby.cook_finished):
                     early_all_done = True
                     break
             await asyncio.sleep(1)
@@ -134,9 +126,7 @@ async def cook_loop(manager: LobbyManager, lobby_id: str) -> None:
     )
 
 
-async def upload_phase(
-    manager: LobbyManager, lobby_id: str, deadline_ts: float
-) -> None:
+async def upload_phase(manager: LobbyManager, lobby_id: str, deadline_ts: float) -> None:
     try:
         while time.time() < deadline_ts:
             async with manager._with_lobby_lock(lobby_id):
@@ -197,9 +187,7 @@ async def begin_voting(manager: LobbyManager, lobby_id: str) -> None:
 
     if lobby_id in manager._vote_tasks:
         manager._vote_tasks[lobby_id].cancel()
-    manager._vote_tasks[lobby_id] = asyncio.create_task(
-        vote_collection_loop(manager, lobby_id)
-    )
+    manager._vote_tasks[lobby_id] = asyncio.create_task(vote_collection_loop(manager, lobby_id))
 
 
 async def vote_collection_loop(manager: LobbyManager, lobby_id: str) -> None:
@@ -260,9 +248,7 @@ async def finalize_results(manager: LobbyManager, lobby_id: str) -> None:
         )
         winners = list(payload.get("winner_ids") or [])
         # Collect all participant user_ids for games_played bump
-        all_user_ids = [
-            p.user_id for p in lobby.players.values() if p.user_id is not None
-        ]
+        all_user_ids = [p.user_id for p in lobby.players.values() if p.user_id is not None]
 
     if payload is None:
         return
@@ -291,4 +277,3 @@ async def finalize_results(manager: LobbyManager, lobby_id: str) -> None:
                 pl = lobby_after.players.get(wid)
                 if pl is not None:
                     pl.wins += 1
-

@@ -108,9 +108,7 @@ class LobbyManager:
         async with lock:
             yield lobby_id
 
-    def register_auth_session(
-        self, player_id: str, user_id: int, username: str
-    ) -> None:
+    def register_auth_session(self, player_id: str, user_id: int, username: str) -> None:
         self.auth_user_id[player_id] = user_id
         self.auth_username[player_id] = username
 
@@ -138,18 +136,14 @@ class LobbyManager:
                 return pid
         return None
 
-    def verify_player_belongs_to_user(
-        self, lobby_id: str, player_id: str, user_id: int
-    ) -> bool:
+    def verify_player_belongs_to_user(self, lobby_id: str, player_id: str, user_id: int) -> bool:
         lobby = self.lobbies.get(lobby_id)
         if not lobby:
             return False
         p = lobby.players.get(player_id)
         return p is not None and p.user_id == user_id
 
-    def get_lobby_kit_meta_for_user(
-        self, lobby_id: str, user_id: int
-    ) -> dict[str, Any] | None:
+    def get_lobby_kit_meta_for_user(self, lobby_id: str, user_id: int) -> dict[str, Any] | None:
         """Return seed / spice for clients that rebuild the kit locally."""
         lobby = self.lobbies.get(lobby_id)
         if not lobby or lobby.seed is None:
@@ -171,16 +165,12 @@ class LobbyManager:
             "match_state": lobby.state.value,
         }
         if lobby.state == LobbyState.COOKING and lobby.cook_deadline_ts is not None:
-            out["cook_remaining_s"] = max(
-                0, int(math.ceil(lobby.cook_deadline_ts - now))
-            )
+            out["cook_remaining_s"] = max(0, int(math.ceil(lobby.cook_deadline_ts - now)))
         if lobby.state == LobbyState.UPLOAD and lobby.upload_deadline_ts is not None:
             out["upload_deadline_ts"] = lobby.upload_deadline_ts
         if lobby.state == LobbyState.VOTING:
             beats: list[dict[str, Any]] = []
-            for i, owner_id in enumerate(
-                sorted(lobby.uploaded, key=lambda x: x), start=1
-            ):
+            for i, owner_id in enumerate(sorted(lobby.uploaded, key=lambda x: x), start=1):
                 nm = beat_display_name(lobby, owner_id, i)
                 beats.append(
                     {
@@ -192,17 +182,13 @@ class LobbyManager:
             out["beats"] = beats
             out["votes_unlock_at"] = lobby.votes_unlock_at
             if lobby.votes_unlock_at is not None:
-                out["votes_close_at"] = float(lobby.votes_unlock_at) + float(
-                    VOTING_COLLECT_S
-                )
+                out["votes_close_at"] = float(lobby.votes_unlock_at) + float(VOTING_COLLECT_S)
         if lobby.state == LobbyState.RESULTS:
             payload, _ = results_ws_payload_and_winner_user_ids(lobby, lobby_id)
             out["results"] = payload
         return out
 
-    def get_match_sync_for_user(
-        self, lobby_id: str, user_id: int
-    ) -> dict[str, Any] | None:
+    def get_match_sync_for_user(self, lobby_id: str, user_id: int) -> dict[str, Any] | None:
         """HTTP recovery: same snapshot the socket would have pushed (refresh / flaky WS)."""
         lobby = self.lobbies.get(lobby_id)
         if not lobby:
@@ -216,16 +202,12 @@ class LobbyManager:
             "lobby_id": lobby_id,
         }
         if st == LobbyState.COOKING and lobby.cook_deadline_ts is not None:
-            out["cook_remaining_s"] = max(
-                0, int(math.ceil(lobby.cook_deadline_ts - now))
-            )
+            out["cook_remaining_s"] = max(0, int(math.ceil(lobby.cook_deadline_ts - now)))
         if st == LobbyState.UPLOAD and lobby.upload_deadline_ts is not None:
             out["upload_deadline_ts"] = lobby.upload_deadline_ts
         if st == LobbyState.VOTING:
             beats: list[dict[str, Any]] = []
-            for i, owner_id in enumerate(
-                sorted(lobby.uploaded, key=lambda x: x), start=1
-            ):
+            for i, owner_id in enumerate(sorted(lobby.uploaded, key=lambda x: x), start=1):
                 nm = beat_display_name(lobby, owner_id, i)
                 beats.append(
                     {
@@ -237,9 +219,7 @@ class LobbyManager:
             out["beats"] = beats
             out["votes_unlock_at"] = lobby.votes_unlock_at
             if lobby.votes_unlock_at is not None:
-                out["votes_close_at"] = float(lobby.votes_unlock_at) + float(
-                    VOTING_COLLECT_S
-                )
+                out["votes_close_at"] = float(lobby.votes_unlock_at) + float(VOTING_COLLECT_S)
         if st == LobbyState.RESULTS:
             payload, _ = results_ws_payload_and_winner_user_ids(lobby, lobby_id)
             out["results"] = payload
@@ -380,9 +360,7 @@ class LobbyManager:
         if lid_resume:
             snap = self.snapshot_for_broadcast(lid_resume)
             if snap:
-                await self.broadcast(
-                    lid_resume, {"type": "lobby_update", "lobby": snap}
-                )
+                await self.broadcast(lid_resume, {"type": "lobby_update", "lobby": snap})
         return True, None
 
     async def send_match_resync_to_player(self, player_id: str) -> None:
@@ -513,14 +491,7 @@ class LobbyManager:
 
     @staticmethod
     def _normalize_lobby_code(code: str) -> str:
-        s = (
-            (code or "")
-            .strip()
-            .upper()
-            .replace(" ", "")
-            .replace("-", "")
-            .replace("_", "")
-        )
+        s = (code or "").strip().upper().replace(" ", "").replace("-", "").replace("_", "")
         return s
 
     def _resolve_lobby_key(self, code: str) -> str | None:
@@ -725,9 +696,7 @@ class LobbyManager:
                 )
             return sorted(out, key=lambda x: x["lobby_id"])
 
-    async def _emit_join_snapshots(
-        self, lobby_id: str, player_id: str, name: str
-    ) -> None:
+    async def _emit_join_snapshots(self, lobby_id: str, player_id: str, name: str) -> None:
         await self.broadcast(
             lobby_id,
             {
@@ -818,9 +787,7 @@ class LobbyManager:
                         err = "You can only kick players before the match starts."
                         err_code = "KICK_BAD_STATE"
                     else:
-                        expected_host = (
-                            next(iter(lobby.players)) if lobby.players else None
-                        )
+                        expected_host = next(iter(lobby.players)) if lobby.players else None
                         if expected_host != host_id:
                             err = "Only the host can kick."
                             err_code = "KICK_NOT_HOST"
@@ -1013,9 +980,7 @@ class LobbyManager:
         emoji_nonempty = emoji_raw is not None and str(emoji_raw).strip() != ""
 
         if text_nonempty and emoji_nonempty:
-            await self.send_player_error(
-                player_id, "Send either text or emoji, not both."
-            )
+            await self.send_player_error(player_id, "Send either text or emoji, not both.")
             return
         if not text_nonempty and not emoji_nonempty:
             await self.send_player_error(player_id, "Empty message.")
@@ -1027,9 +992,7 @@ class LobbyManager:
                 return
             lobby = self.lobbies.get(lobby_id)
             if not lobby or lobby.state not in MP_CHAT_STATES:
-                await self.send_player_error(
-                    player_id, "Chat is not available right now."
-                )
+                await self.send_player_error(player_id, "Chat is not available right now.")
                 return
             pl = lobby.players.get(player_id)
             if not pl:
@@ -1077,9 +1040,7 @@ class LobbyManager:
     async def lobby_emoji(self, player_id: str, emoji_key: str) -> None:
         await self.mp_chat(player_id, {"emoji": emoji_key})
 
-    async def beat_reaction(
-        self, player_id: str, target_player_id: str, reaction: str
-    ) -> None:
+    async def beat_reaction(self, player_id: str, target_player_id: str, reaction: str) -> None:
         r = str(reaction).strip()
         if r not in BEAT_REACTION_KEYS:
             await self.send_player_error(player_id, "Invalid reaction.")
@@ -1168,9 +1129,7 @@ class LobbyManager:
                 snap_after = lobby_snap.lobby_snapshot()
         if snap_after is not None:
             self.apply_connection_fields_to_snap(snap_after)
-            await self.broadcast(
-                lobby_id, {"type": "lobby_update", "lobby": snap_after}
-            )
+            await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap_after})
 
         should_finalize = False
         async with self._with_lobby_lock(lobby_id):
@@ -1261,9 +1220,7 @@ class LobbyManager:
         if new_id is not None:
             new_snap = self.snapshot_for_broadcast(new_id)
             if new_snap:
-                await self.broadcast(
-                    new_id, {"type": "lobby_update", "lobby": new_snap}
-                )
+                await self.broadcast(new_id, {"type": "lobby_update", "lobby": new_snap})
 
     async def rematch_vote(self, player_id: str) -> None:
         paused = await asyncio.to_thread(pause_new_matches_cached)
@@ -1345,9 +1302,7 @@ class LobbyManager:
                     lobby.chat_last_sent.pop(player_id, None)
                     lobby.uploaded.discard(player_id)
                     lobby.votes.pop(player_id, None)
-                    for vid in [
-                        k for k, tgt in lobby.votes.items() if tgt == player_id
-                    ]:
+                    for vid in [k for k, tgt in lobby.votes.items() if tgt == player_id]:
                         lobby.votes.pop(vid, None)
                     lobby.slideshow_completed.discard(player_id)
                     left_count = len(lobby.players)
@@ -1359,9 +1314,7 @@ class LobbyManager:
 
         self._unlink_player_beat_upload(lobby_id, player_id)
         if beats_r2.r2_capabilities()["r2_direct"]:
-            await asyncio.to_thread(
-                beats_r2.r2_delete_player_beat_objects, lobby_id, player_id
-            )
+            await asyncio.to_thread(beats_r2.r2_delete_player_beat_objects, lobby_id, player_id)
 
         await self.broadcast(
             lobby_id,
@@ -1378,9 +1331,7 @@ class LobbyManager:
             async with self._with_lobby_lock(lobby_id):
                 lobby_res = self.lobbies.get(lobby_id)
                 if lobby_res:
-                    lobby_res.rematch_pending.intersection_update(
-                        set(lobby_res.players.keys())
-                    )
+                    lobby_res.rematch_pending.intersection_update(set(lobby_res.players.keys()))
                     rematch_voted = sorted(lobby_res.rematch_pending)
                     cur_p = set(lobby_res.players.keys())
                     do_rematch = len(cur_p) >= 2 and cur_p == lobby_res.rematch_pending
@@ -1415,9 +1366,7 @@ class LobbyManager:
             if should_finalize:
                 snap = self.snapshot_for_broadcast(lobby_id)
                 if snap is not None:
-                    await self.broadcast(
-                        lobby_id, {"type": "lobby_update", "lobby": snap}
-                    )
+                    await self.broadcast(lobby_id, {"type": "lobby_update", "lobby": snap})
                 await finalize_results(self, lobby_id)
                 return
 
@@ -1509,13 +1458,9 @@ class LobbyManager:
         await self._purge_lobby(lobby_id, remove_dir=True)
 
     async def _purge_lobby(self, lobby_id: str, remove_dir: bool = True) -> None:
-        self._r2_beat_complete = {
-            t for t in self._r2_beat_complete if t[0] != lobby_id
-        }
+        self._r2_beat_complete = {t for t in self._r2_beat_complete if t[0] != lobby_id}
         self._r2_beat_complete_meta = {
-            k: v
-            for k, v in self._r2_beat_complete_meta.items()
-            if k[0] != lobby_id
+            k: v for k, v in self._r2_beat_complete_meta.items() if k[0] != lobby_id
         }
         t = self._cook_tasks.pop(lobby_id, None)
         if t:
@@ -1584,9 +1529,7 @@ class LobbyManager:
         for lid in to_drop:
             await self._purge_lobby(lid, remove_dir=True)
 
-    async def handle_leave_lobby(
-        self, player_id: str, websocket: WebSocket | None
-    ) -> bool:
+    async def handle_leave_lobby(self, player_id: str, websocket: WebSocket | None) -> bool:
         """Pre-game and results: hard disconnect. Other in-match: soft detach (grace) — same as losing the socket."""
         lid = self.player_lobby.get(player_id)
         lobby = self.lobbies.get(lid) if lid else None
@@ -1643,9 +1586,7 @@ class LobbyManager:
         elif t == "player_join":
             code = data.get("lobby_code") or data.get("lobby_id")
             if code is not None and str(code).strip() != "":
-                await self.join_lobby_by_code(
-                    player_id, str(data.get("name", "")), str(code)
-                )
+                await self.join_lobby_by_code(player_id, str(data.get("name", "")), str(code))
             else:
                 await self.send_player_error(
                     player_id,

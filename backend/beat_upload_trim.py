@@ -42,9 +42,7 @@ def trim_beat_upload_to_ogg(
 
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        raise RuntimeError(
-            "ffmpeg not found on PATH (required to encode beats as OGG)."
-        )
+        raise RuntimeError("ffmpeg not found on PATH (required to encode beats as OGG).")
 
     dest_ogg.parent.mkdir(parents=True, exist_ok=True)
     if dest_ogg.is_file():

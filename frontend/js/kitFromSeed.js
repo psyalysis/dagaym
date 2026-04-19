@@ -213,7 +213,8 @@ export function normalizeEdmDatasetPath(rel) {
   const root = CDN_EDM_PREFIX;
   if (s === root || s.startsWith(`${root}/`)) return s;
   if (s === EDM_LEGACY_NESTED || s.startsWith(`${EDM_LEGACY_NESTED}/`)) {
-    const tail = s === EDM_LEGACY_NESTED ? "" : s.slice(EDM_LEGACY_NESTED.length + 1);
+    const tail =
+      s === EDM_LEGACY_NESTED ? "" : s.slice(EDM_LEGACY_NESTED.length + 1);
     return tail ? joinKey(root, tail) : root;
   }
   return s;
@@ -233,7 +234,9 @@ function edmLogicalToCdnKey(rel) {
  * @returns {"trap" | "edm"}
  */
 export function normalizeKitGenre(genre) {
-  const s = String(genre ?? "trap").trim().toLowerCase();
+  const s = String(genre ?? "trap")
+    .trim()
+    .toLowerCase();
   return s === "edm" ? "edm" : "trap";
 }
 
@@ -311,7 +314,7 @@ const LEGACY_KIT_KEY_MAP = {
   clap: "claps",
   hihat: "hihats",
   open_hat: "openhats",
-  "808": "808s",
+  808: "808s",
   perc: "percs",
   kick: "kicks",
   vox: "Vox",
@@ -322,7 +325,12 @@ const LEGACY_KIT_KEY_MAP = {
  * @returns {typeof data}
  */
 function normalizeLegacyKitManifestKeys(data) {
-  if (!data || typeof data !== "object" || typeof data.keys !== "object" || !data.keys)
+  if (
+    !data ||
+    typeof data !== "object" ||
+    typeof data.keys !== "object" ||
+    !data.keys
+  )
     return data;
   const keys = data.keys;
   for (const [oldKey, newKey] of Object.entries(LEGACY_KIT_KEY_MAP)) {
@@ -334,7 +342,12 @@ function normalizeLegacyKitManifestKeys(data) {
 }
 
 function isValidManifestShape(data, genre = "trap") {
-  if (!data || typeof data !== "object" || typeof data.keys !== "object" || !data.keys)
+  if (
+    !data ||
+    typeof data !== "object" ||
+    typeof data.keys !== "object" ||
+    !data.keys
+  )
     return false;
   const need =
     normalizeKitGenre(genre) === "edm" ? KIT_EDM_MANIFEST_KEYS : KIT_SOUND_KEYS;
@@ -368,7 +381,8 @@ export async function fetchKitManifest(apiBase, genre = "trap") {
     /* ignore */
   }
   const cdn = getCdnBase().replace(/\/+$/, "");
-  const cdnFiles = g === "edm" ? KIT_MANIFEST_CDN_FILES_EDM : KIT_MANIFEST_CDN_FILES_TRAP;
+  const cdnFiles =
+    g === "edm" ? KIT_MANIFEST_CDN_FILES_EDM : KIT_MANIFEST_CDN_FILES_TRAP;
   if (cdn) {
     for (const name of cdnFiles) {
       try {

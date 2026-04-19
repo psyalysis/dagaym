@@ -78,7 +78,10 @@ const KIT_EDM_DRUM_SECTIONS = /** @type {const} */ [
  * @param {HTMLElement} container
  * @param {{ synthKeys: string[], appendCard: (key: string) => HTMLElement, genre?: string }} opts
  */
-export function mountKitLayoutShell(container, { synthKeys, appendCard, genre }) {
+export function mountKitLayoutShell(
+  container,
+  { synthKeys, appendCard, genre },
+) {
   container.classList.add("kit-layout");
   container.replaceChildren();
 

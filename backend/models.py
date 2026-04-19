@@ -16,23 +16,17 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    username: Mapped[str] = mapped_column(
-        String(32), unique=True, index=True, nullable=False
-    )
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     wins: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    games_played: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    games_played: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
     coins: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     bio: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
-    avatar_url: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, default=None
-    )
-    profile_icon_key: Mapped[str | None] = mapped_column(
-        String(32), nullable=True, default=None
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
+    profile_icon_key: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Profile comments received on this user's profile
     profile_comments_received: Mapped[list["ProfileComment"]] = relationship(
@@ -58,18 +52,14 @@ class UserProfileIconOwnership(Base):
     """Purchased profile icons (beatbucks shop)."""
 
     __tablename__ = "user_profile_icon_ownership"
-    __table_args__ = (
-        UniqueConstraint("user_id", "icon_key", name="uq_user_profile_icon"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "icon_key", name="uq_user_profile_icon"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     icon_key: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="profile_icon_ownership")
 
@@ -92,12 +82,8 @@ class Supporter(Base):
     __tablename__ = "supporters"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name_key: Mapped[str] = mapped_column(
-        String(64), unique=True, index=True, nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    name_key: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class ProfileComment(Base):
@@ -113,9 +99,7 @@ class ProfileComment(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     profile: Mapped["User"] = relationship(
         "User", foreign_keys=[profile_id], back_populates="profile_comments_received"
