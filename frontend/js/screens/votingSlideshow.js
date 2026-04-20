@@ -74,77 +74,6 @@ function getWaveSurfer() {
   throw new Error("WaveSurfer not loaded");
 }
 
-/**
- * First `maxSec` seconds only (same sample rate / channels).
- * @param {AudioContext} ac
- * @param {AudioBuffer} input
- * @param {number} maxSec
- */
-function clipAudioBuffer(ac, input, maxSec) {
-  const sr = input.sampleRate;
-  const maxFrames = Math.min(input.length, Math.floor(maxSec * sr));
-  if (maxFrames <= 0) throw new Error("Empty audio.");
-  const out = ac.createBuffer(input.numberOfChannels, maxFrames, sr);
-  for (let c = 0; c < input.numberOfChannels; c++) {
-    out.copyToChannel(input.getChannelData(c).subarray(0, maxFrames), c);
-  }
-  return out;
-}
-
-/** Tiny WAV blob so WaveSurfer is happy. */
-function audioBufferToWav(buffer) {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const numSamples = buffer.length;
-  const bytesPerSample = 2;
-  const blockAlign = numChannels * bytesPerSample;
-  const dataSize = numSamples * blockAlign;
-  const wav = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(wav);
-  const writeStr = (off, str) => {
-    for (let i = 0; i < str.length; i++)
-      view.setUint8(off + i, str.charCodeAt(i));
-  };
-  writeStr(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeStr(8, "WAVE");
-  writeStr(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * blockAlign, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true);
-  writeStr(36, "data");
-  view.setUint32(40, dataSize, true);
-  let o = 44;
-  for (let i = 0; i < numSamples; i++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      const s = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i]));
-      view.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-      o += 2;
-    }
-  }
-  return new Blob([wav], { type: "audio/wav" });
-}
-
-/**
- * Decode fetched audio, clip to CLIP_MAX_SEC, return WAV blob for URL.
- * @param {Blob} blob
- */
-async function blobToClippedWav(blob) {
-  const arrayBuffer = await blob.arrayBuffer();
-  const ac = new AudioContext();
-  try {
-    const decoded = await ac.decodeAudioData(arrayBuffer.slice(0));
-    const clipped = clipAudioBuffer(ac, decoded, CLIP_MAX_SEC);
-    return audioBufferToWav(clipped);
-  } finally {
-    await ac.close().catch(() => {});
-  }
-}
-
 export function mountVotingSlideshowScreen(root, ctx) {
   mountAuthCornerLeave(ctx);
   setAppErrorContext({ screen: "Listen & vote", phase: "Beat slideshow" });
@@ -489,15 +418,7 @@ export function mountVotingSlideshowScreen(root, ctx) {
       if (!res.ok) throw new Error(String(res.status));
       const blob = await res.blob();
 
-      let clipped = true;
-      let playBlob = blob;
-      try {
-        playBlob = await blobToClippedWav(blob);
-      } catch {
-        clipped = false;
-      }
-
-      slideObjectUrl = URL.createObjectURL(playBlob);
+      slideObjectUrl = URL.createObjectURL(blob);
       const WaveSurfer = getWaveSurfer();
       wsur = WaveSurfer.create({
         container: waveEl,
@@ -516,34 +437,31 @@ export function mountVotingSlideshowScreen(root, ctx) {
       wsur.on("ready", () => {
         if (!wsur || slideClosed) return;
         wsur.play();
-
-        if (!clipped) {
-          const dur =
-            typeof wsur.getDuration === "function"
-              ? wsur.getDuration()
-              : Number.NaN;
-          const end = Math.min(
-            CLIP_MAX_SEC,
-            Number.isFinite(dur) ? dur : CLIP_MAX_SEC,
-          );
-          const media = wsur.getMediaElement?.();
-          const cap = () => {
-            if (slideClosed || !wsur) return;
-            const t =
-              typeof wsur.getCurrentTime === "function"
-                ? wsur.getCurrentTime()
-                : (media?.currentTime ?? 0);
-            if (t >= end - 0.05) {
-              advance();
-            }
-          };
-          poll = window.setInterval(cap, 50);
-          if (media) {
-            const onTime = () => cap();
-            media.addEventListener("timeupdate", onTime);
-            removeTimeCap = () =>
-              media.removeEventListener("timeupdate", onTime);
+        const dur =
+          typeof wsur.getDuration === "function"
+            ? wsur.getDuration()
+            : Number.NaN;
+        const end = Math.min(
+          CLIP_MAX_SEC,
+          Number.isFinite(dur) ? dur : CLIP_MAX_SEC,
+        );
+        const media = wsur.getMediaElement?.();
+        const cap = () => {
+          if (slideClosed || !wsur) return;
+          const t =
+            typeof wsur.getCurrentTime === "function"
+              ? wsur.getCurrentTime()
+              : (media?.currentTime ?? 0);
+          if (t >= end - 0.05) {
+            advance();
           }
+        };
+        poll = window.setInterval(cap, 50);
+        if (media) {
+          const onTime = () => cap();
+          media.addEventListener("timeupdate", onTime);
+          removeTimeCap = () =>
+            media.removeEventListener("timeupdate", onTime);
         }
       });
 
