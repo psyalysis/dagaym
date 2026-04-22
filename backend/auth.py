@@ -4,10 +4,10 @@ Password hashing, JWT, registration, login, and auth dependencies.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import secrets
-import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -16,10 +16,10 @@ import bcrypt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from .database import SessionLocal, get_db
+from .database import SessionLocal
 from .models import User
 from .schemas import LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
 
@@ -30,11 +30,10 @@ ACCESS_TOKEN_EXPIRE_DAYS = 7
 _WS_TICKET_TTL_S = 30
 # jti -> JWT exp (unix); only entries with exp >= now survive replay checks until pruned.
 _ws_ticket_consumed: dict[str, float] = {}
-_ws_ticket_lock = threading.Lock()
+_ws_ticket_lock = asyncio.Lock()
 _MAX_WS_JTI_LEN = 128
 _USER_CACHE_TTL_S = 45.0
 _user_cache: dict[int, tuple[User, float]] = {}
-_user_cache_lock = threading.Lock()
 
 security = HTTPBearer(auto_error=False)
 
@@ -137,40 +136,32 @@ def get_user_by_id(db: Session, user_id: int) -> User | None:
 
 def _cached_user_get(user_id: int) -> User | None:
     now = time.monotonic()
-    with _user_cache_lock:
-        hit = _user_cache.get(user_id)
-        if hit is None:
-            return None
-        user, exp = hit
-        if exp <= now:
-            _user_cache.pop(user_id, None)
-            return None
-        return user
+    hit = _user_cache.get(user_id)
+    if hit is None:
+        return None
+    user, exp = hit
+    if exp <= now:
+        _user_cache.pop(user_id, None)
+        return None
+    return user
 
 
 def _cached_user_put(user: User) -> None:
-    with _user_cache_lock:
-        _user_cache[user.id] = (user, time.monotonic() + _USER_CACHE_TTL_S)
+    _user_cache[user.id] = (user, time.monotonic() + _USER_CACHE_TTL_S)
 
 
 def invalidate_user_cache(*user_ids: int) -> None:
     """Drop cache entries after a write (win increment, profile change, etc.)."""
-    with _user_cache_lock:
-        for uid in user_ids:
-            _user_cache.pop(uid, None)
+    for uid in user_ids:
+        _user_cache.pop(uid, None)
 
 
 def increment_wins_for_users(db: Session, user_ids: list[int]) -> None:
-    seen: set[int] = set()
-    for uid in user_ids:
-        if uid in seen:
-            continue
-        seen.add(uid)
-        u = db.get(User, uid)
-        if u is not None:
-            u.wins += 1
+    seen = list(set(user_ids))
+    if not seen:
+        return
+    db.execute(update(User).where(User.id.in_(seen)).values(wins=User.wins + 1))
     db.commit()
-    # Bust cache so subsequent /me or leaderboard reads see updated wins.
     invalidate_user_cache(*seen)
 
 
@@ -219,9 +210,8 @@ def award_coins_for_game(
     invalidate_user_cache(*touched)
 
 
-def get_current_user(
+async def get_current_user(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
-    db: Annotated[Session, Depends(get_db)],
 ) -> User:
     if creds is None or creds.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Not authenticated.")
@@ -232,19 +222,26 @@ def get_current_user(
         uid = int(payload["sub"])
     except (JWTError, KeyError, ValueError, TypeError):
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    pv_db = db.scalar(select(User.password_version).where(User.id == uid))
-    if pv_db is None:
-        raise HTTPException(status_code=401, detail="User not found.")
-    if _password_version_from_payload(payload) != int(pv_db):
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
     cached = _cached_user_get(uid)
     if cached is not None:
-        user = db.merge(cached, load=False)
-    else:
-        user = get_user_by_id(db, uid)
-        if user is None:
-            raise HTTPException(status_code=401, detail="User not found.")
-        _cached_user_put(user)
+        if _password_version_from_payload(payload) != int(cached.password_version or 0):
+            raise HTTPException(status_code=401, detail="Invalid or expired token.")
+        return cached
+
+    def _fetch() -> User | None:
+        db = SessionLocal()
+        try:
+            return db.get(User, uid)
+        finally:
+            db.close()
+
+    user = await asyncio.to_thread(_fetch)
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found.")
+    if _password_version_from_payload(payload) != int(user.password_version or 0):
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+    _cached_user_put(user)
     return user
 
 
@@ -299,7 +296,7 @@ def validate_ws_token(token: str | None) -> tuple[int, str] | None:
     return ok
 
 
-def create_ws_ticket(user_id: int, username: str, password_version: int) -> str:
+async def create_ws_ticket(user_id: int, username: str, password_version: int) -> str:
     """Short-lived single-use JWT for ``/ws?token=`` (see ``redeem_ws_ticket``)."""
     jti = secrets.token_urlsafe(24)
     expire = datetime.now(timezone.utc) + timedelta(seconds=_WS_TICKET_TTL_S)
@@ -314,7 +311,7 @@ def create_ws_ticket(user_id: int, username: str, password_version: int) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def redeem_ws_ticket(token: str) -> tuple[int, str] | None:
+async def redeem_ws_ticket(token: str) -> tuple[int, str] | None:
     """
     If ``token`` is a valid unused ws ticket, mark ``jti`` consumed until JWT exp and return
     ``(user_id, username)``. Otherwise return None (caller may try long-lived JWT — but
@@ -345,7 +342,7 @@ def redeem_ws_ticket(token: str) -> tuple[int, str] | None:
     except (KeyError, TypeError, ValueError):
         return None
     now = time.time()
-    with _ws_ticket_lock:
+    async with _ws_ticket_lock:
         _ws_prune_consumed_locked(now)
         if jti in _ws_ticket_consumed:
             return None

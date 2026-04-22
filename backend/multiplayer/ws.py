@@ -50,7 +50,7 @@ async def multiplayer_ws(websocket: WebSocket) -> None:
 
     token = websocket.query_params.get("token")
 
-    ticket_result = await asyncio.to_thread(redeem_ws_ticket, token or "")
+    ticket_result = await redeem_ws_ticket(token or "")
     if ticket_result is not None:
         auth = ticket_result
         auth_reason = None

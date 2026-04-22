@@ -14,6 +14,7 @@ For nginx, raise ``proxy_read_timeout`` / ``proxy_send_timeout`` above the ping 
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
 import random
@@ -57,7 +58,7 @@ from . import beats_r2
 from .http_rate_limit import IPRateLimitMiddleware
 from . import avatar_r2
 from .beat_upload_trim import trim_beat_upload_to_ogg
-from .database import get_db, init_db
+from .database import SessionLocal, get_db, init_db
 from .generator import generate_kit_light
 from .kit_manifest import get_kit_manifest_cached, get_kit_manifest_for_genre
 from .kit_payload import encode_paths_to_sounds
@@ -259,18 +260,22 @@ async def _flush_visits() -> None:
             return
         batch = _visit_counter_pending
         _visit_counter_pending = 0
-    db = next(get_db())
-    try:
-        row = db.get(SiteStats, 1)
-        if row is None:
-            row = SiteStats(id=1, total_visits=0)
-            db.add(row)
-            db.flush()
-        row.total_visits += batch
-        db.commit()
-        _visit_total_known = int(row.total_visits)
-    finally:
-        db.close()
+
+    def _do_flush() -> int:
+        db = SessionLocal()
+        try:
+            row = db.get(SiteStats, 1)
+            if row is None:
+                row = SiteStats(id=1, total_visits=0)
+                db.add(row)
+                db.flush()
+            row.total_visits += batch
+            db.commit()
+            return int(row.total_visits)
+        finally:
+            db.close()
+
+    _visit_total_known = await asyncio.to_thread(_do_flush)
 
 
 async def _increment_visit_batched() -> int:
@@ -482,12 +487,38 @@ app.add_middleware(
 app.add_middleware(HealthcheckFastPathMiddleware)
 app.add_middleware(CanonicalHostMiddleware)
 
-_LOGIN_LIMIT = SlidingWindowRateLimiter(max_events=10, window_s=60.0)
-_REGISTER_LIMIT = SlidingWindowRateLimiter(max_events=5, window_s=60.0)
+_AUTH_WINDOW_S = _env_float("COOKUP_AUTH_RATE_LIMIT_WINDOW_S", 60.0, minimum=1.0)
+_LOGIN_USER_LIMIT = SlidingWindowRateLimiter(
+    max_events=_env_int("COOKUP_LOGIN_USER_RATE", 10, minimum=1),
+    window_s=_AUTH_WINDOW_S,
+)
+_LOGIN_IP_LIMIT = SlidingWindowRateLimiter(
+    max_events=_env_int("COOKUP_LOGIN_IP_RATE", 30, minimum=1),
+    window_s=_AUTH_WINDOW_S,
+)
+_REGISTER_USER_LIMIT = SlidingWindowRateLimiter(
+    max_events=_env_int("COOKUP_REGISTER_USER_RATE", 5, minimum=1),
+    window_s=_AUTH_WINDOW_S,
+)
+_REGISTER_IP_LIMIT = SlidingWindowRateLimiter(
+    max_events=_env_int("COOKUP_REGISTER_IP_RATE", 15, minimum=1),
+    window_s=_AUTH_WINDOW_S,
+)
 _ADMIN_RESET_LIMIT = SlidingWindowRateLimiter(max_events=5, window_s=3600.0)
 
 _admin_log = logging.getLogger("cookup.admin")
 _admin_bearer = HTTPBearer(auto_error=False)
+
+
+def _is_loopback_ip(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip).is_loopback
+    except ValueError:
+        return ip == "localhost"
+
+
+def _retry_after_s(window_s: float) -> str:
+    return str(max(1, int(window_s)))
 
 
 def _require_admin_api_key(
@@ -645,11 +676,18 @@ def post_register(
     request: Request, body: RegisterRequest, db: Session = Depends(get_db)
 ) -> RegisterResponse:
     ip = request.client.host if request.client else "unknown"
-    if not _REGISTER_LIMIT.check(f"reg:{ip}"):
+    username_key = body.username.strip().lower()
+    if not _REGISTER_USER_LIMIT.check(f"reg_user:{username_key}"):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registration attempts for this username. Try again later.",
+            headers={"Retry-After": _retry_after_s(_AUTH_WINDOW_S)},
+        )
+    if not _is_loopback_ip(ip) and not _REGISTER_IP_LIMIT.check(f"reg_ip:{ip}"):
         raise HTTPException(
             status_code=429,
             detail="Too many registrations. Try again later.",
-            headers={"Retry-After": "10"},
+            headers={"Retry-After": _retry_after_s(_AUTH_WINDOW_S)},
         )
     return register_user(db, body)
 
@@ -659,11 +697,18 @@ def post_login(
     request: Request, body: LoginRequest, db: Session = Depends(get_db)
 ) -> TokenResponse:
     ip = request.client.host if request.client else "unknown"
-    if not _LOGIN_LIMIT.check(f"login:{ip}"):
+    username_key = body.username.strip().lower()
+    if not _LOGIN_USER_LIMIT.check(f"login_user:{username_key}"):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts for this username. Try again later.",
+            headers={"Retry-After": _retry_after_s(_AUTH_WINDOW_S)},
+        )
+    if not _is_loopback_ip(ip) and not _LOGIN_IP_LIMIT.check(f"login_ip:{ip}"):
         raise HTTPException(
             status_code=429,
             detail="Too many login attempts. Try again later.",
-            headers={"Retry-After": "5"},
+            headers={"Retry-After": _retry_after_s(_AUTH_WINDOW_S)},
         )
     return login_user(db, body)
 
@@ -696,14 +741,14 @@ def post_admin_reset_password(
 
 
 @app.post("/api/ws-ticket")
-def post_ws_ticket(user: User = Depends(get_current_user)) -> dict[str, str]:
+async def post_ws_ticket(user: User = Depends(get_current_user)) -> dict[str, str]:
     """Issue a short-lived, single-use ticket for WebSocket auth.
 
     The frontend calls this before opening a WS connection, then passes the
     ticket as ``?token=...`` instead of the long-lived JWT.  Even if the URL
     leaks in server/proxy logs the ticket is already expired (30 s) and
     single-use."""
-    ticket = create_ws_ticket(
+    ticket = await create_ws_ticket(
         user.id, user.username, int(user.password_version or 0)
     )
     return {"ticket": ticket}
@@ -1094,18 +1139,18 @@ async def upload_beat(
 
     total = 0
     first_chunk: bytes | None = None
+    chunks: list[bytes] = []
     try:
-        with part.open("wb") as out:
-            while True:
-                chunk = await file.read(1024 * 512)
-                if not chunk:
-                    break
-                if first_chunk is None:
-                    first_chunk = chunk[:64]
-                total += len(chunk)
-                if total > MAX_BEAT_BYTES:
-                    raise HTTPException(status_code=400, detail="File too large (max 30MB).")
-                out.write(chunk)
+        while True:
+            chunk = await file.read(1024 * 512)
+            if not chunk:
+                break
+            if first_chunk is None:
+                first_chunk = chunk[:64]
+            total += len(chunk)
+            if total > MAX_BEAT_BYTES:
+                raise HTTPException(status_code=400, detail="File too large (max 30MB).")
+            chunks.append(chunk)
 
         if total == 0:
             raise HTTPException(status_code=400, detail="Empty file.")
@@ -1113,6 +1158,13 @@ async def upload_beat(
         sniffed = _sniff_audio(first_chunk or b"")
         if sniffed and sniffed != suffix:
             raise HTTPException(status_code=400, detail="File content does not match extension.")
+
+        def _write_to_disk() -> None:
+            with part.open("wb") as out:
+                for c in chunks:
+                    out.write(c)
+
+        await asyncio.to_thread(_write_to_disk)
 
         acquired = False
         try:

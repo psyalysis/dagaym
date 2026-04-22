@@ -55,7 +55,7 @@ from .manager_results import results_ws_payload_and_winner_user_ids
 from .mp_chat_text import chat_cooldown_elapsed, normalize_and_validate_mp_chat_text
 
 # How long we keep your seat after the tab drops (soft disconnect). Tests crank this way down.
-MP_WS_GRACE_S = 60.0
+MP_WS_GRACE_S = 120.0
 
 PAUSE_NEW_MATCHES_MSG = "Server is restarting. Waiting for matches to finish."
 
@@ -450,14 +450,13 @@ class LobbyManager:
         if not lobby:
             return
         raw = json.dumps(message)
-        for pid in lobby.players:
-            ws = self.player_ws.get(pid)
-            if not ws:
-                continue
-            try:
-                await ws.send_text(raw)
-            except Exception:
-                pass
+        coros = [
+            ws.send_text(raw)
+            for pid in lobby.players
+            if (ws := self.player_ws.get(pid)) is not None
+        ]
+        if coros:
+            await asyncio.gather(*coros, return_exceptions=True)
 
     async def send_player_error(
         self,
@@ -1526,6 +1525,13 @@ class LobbyManager:
                 if L.state == LobbyState.RESULTS and L.results_at:
                     if now - L.results_at > LOBBY_RESULTS_TTL_S:
                         to_drop.append(lid)
+                elif L.state in (LobbyState.COOKING, LobbyState.UPLOAD, LobbyState.VOTING):
+                    # Zombie: mid-game lobby where all players hard-crashed with no grace timers
+                    if now - L.created_at > 600:
+                        has_connection = any(self.player_ws.get(pid) for pid in L.players)
+                        has_grace = any(self._grace_tasks.get(pid) for pid in L.players)
+                        if not has_connection and not has_grace:
+                            to_drop.append(lid)
         for lid in to_drop:
             await self._purge_lobby(lid, remove_dir=True)
 

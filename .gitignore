@@ -3,6 +3,7 @@ docs/
 trap/
 test-server/
 .ruff_cache/
+.venv/
 
 _pycache_/
 generated/
